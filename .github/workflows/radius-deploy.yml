@@ -22,7 +22,7 @@ on:
       app_file:
         description: 'Bicep application file to deploy'
         required: true
-        default: 'app.bicep'
+        default: '.radius/app.bicep'
       app_name:
         description: 'Application name'
         required: false
@@ -39,7 +39,7 @@ permissions:
 
 env:
   ENVIRONMENT: ${{ inputs.environment || 'dev' }}
-  APP_FILE_INPUT: ${{ inputs.app_file || 'app.bicep' }}
+  APP_FILE_INPUT: ${{ inputs.app_file || '.radius/app.bicep' }}
   APP_NAME: ${{ inputs.app_name || 'app' }}
   APP_IMAGE: ${{ inputs.image || vars.RADIUS_APP_IMAGE || '' }}
   RESOURCE_TYPES_CONTRIB_REPO: https://github.com/radius-project/resource-types-contrib.git
@@ -58,10 +58,8 @@ jobs:
         run: |
           if [ -f "$APP_FILE_INPUT" ]; then
             echo "APP_FILE=$APP_FILE_INPUT" >> $GITHUB_ENV
-          elif [ -f ".radius/$APP_FILE_INPUT" ]; then
-            echo "APP_FILE=.radius/$APP_FILE_INPUT" >> $GITHUB_ENV
-          elif [ -f ".radius/app.bicep" ]; then
-            echo "APP_FILE=.radius/app.bicep" >> $GITHUB_ENV
+          elif [ -f "app.bicep" ]; then
+            echo "APP_FILE=app.bicep" >> $GITHUB_ENV
           else
             echo "APP_FILE=$APP_FILE_INPUT" >> $GITHUB_ENV
           fi
