@@ -54,6 +54,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Detect app file location
+        run: |
+          if [ -f "$APP_FILE_INPUT" ]; then
+            echo "APP_FILE=$APP_FILE_INPUT" >> $GITHUB_ENV
+          elif [ -f ".radius/$APP_FILE_INPUT" ]; then
+            echo "APP_FILE=.radius/$APP_FILE_INPUT" >> $GITHUB_ENV
+          elif [ -f ".radius/app.bicep" ]; then
+            echo "APP_FILE=.radius/app.bicep" >> $GITHUB_ENV
+          else
+            echo "APP_FILE=$APP_FILE_INPUT" >> $GITHUB_ENV
+          fi
+
       - name: Azure Login (OIDC)
         if: ${{ vars.AZURE_CLIENT_ID != '' }}
         uses: azure/login@v2
