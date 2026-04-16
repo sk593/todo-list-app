@@ -19,14 +19,6 @@ on:
         description: 'GitHub Environment name'
         required: true
         default: 'dev'
-      app_file:
-        description: 'Bicep application file to deploy'
-        required: true
-        default: '.radius/app.bicep'
-      app_name:
-        description: 'Application name'
-        required: false
-        default: 'app'
       image:
         description: 'Container image for the application (e.g. ghcr.io/sk593/demo:latest)'
         required: false
@@ -39,8 +31,7 @@ permissions:
 
 env:
   ENVIRONMENT: ${{ inputs.environment || 'dev' }}
-  APP_FILE_INPUT: ${{ inputs.app_file || '.radius/app.bicep' }}
-  APP_NAME: ${{ inputs.app_name || 'app' }}
+  APP_FILE: .radius/app.bicep
   APP_IMAGE: ${{ inputs.image || vars.RADIUS_APP_IMAGE || '' }}
   RESOURCE_TYPES_CONTRIB_REPO: https://github.com/radius-project/resource-types-contrib.git
   RESOURCE_TYPES_CONTRIB_REF: main
@@ -53,16 +44,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Detect app file location
-        run: |
-          if [ -f "$APP_FILE_INPUT" ]; then
-            echo "APP_FILE=$APP_FILE_INPUT" >> $GITHUB_ENV
-          elif [ -f "app.bicep" ]; then
-            echo "APP_FILE=app.bicep" >> $GITHUB_ENV
-          else
-            echo "APP_FILE=$APP_FILE_INPUT" >> $GITHUB_ENV
-          fi
 
       - name: Azure Login (OIDC)
         if: ${{ vars.AZURE_CLIENT_ID != '' }}
@@ -365,17 +346,13 @@ jobs:
         run: |
           TARGET_KUBECONFIG="$HOME/.kube/target-cluster"
           if [ -f "$TARGET_KUBECONFIG" ]; then
-            BICEP_APP_NAME=$(grep -oP "name:\s*'\K[^']+" "$APP_FILE" 2>/dev/null | head -1)
+            BICEP_APP_NAME=$(grep -oP "name:\s*'\K[^']+" ".radius/app.bicep" 2>/dev/null | head -1)
             if [ -z "$BICEP_APP_NAME" ]; then
-              BICEP_APP_NAME="$APP_NAME"
+              BICEP_APP_NAME="app"
             fi
-            if [ -n "$BICEP_APP_NAME" ]; then
-              APP_NS="default-$BICEP_APP_NAME"
-              echo "Ensuring namespace $APP_NS exists on target cluster..."
-              kubectl --kubeconfig "$TARGET_KUBECONFIG" get namespace "$APP_NS" 2>/dev/null ||                 kubectl --kubeconfig "$TARGET_KUBECONFIG" create namespace "$APP_NS"
-            else
-              echo "Could not determine app name, skipping namespace creation"
-            fi
+            APP_NS="default-$BICEP_APP_NAME"
+            echo "Ensuring namespace $APP_NS exists on target cluster..."
+            kubectl --kubeconfig "$TARGET_KUBECONFIG" get namespace "$APP_NS" 2>/dev/null ||               kubectl --kubeconfig "$TARGET_KUBECONFIG" create namespace "$APP_NS"
           fi
 
       - name: Create bicepconfig for deployment
@@ -439,8 +416,8 @@ jobs:
         if: always()
         run: |
           TARGET_KUBECONFIG="$HOME/.kube/target-cluster"
-          BICEP_APP_NAME=$(grep -oP "name:\s*'\K[^']+" "$APP_FILE" 2>/dev/null | head -1)
-          if [ -z "$BICEP_APP_NAME" ]; then BICEP_APP_NAME="$APP_NAME"; fi
+          BICEP_APP_NAME=$(grep -oP "name:\s*'\K[^']+" ".radius/app.bicep" 2>/dev/null | head -1)
+          if [ -z "$BICEP_APP_NAME" ]; then BICEP_APP_NAME="app"; fi
           APP_NS="default-$BICEP_APP_NAME"
           if [ -f "$TARGET_KUBECONFIG" ]; then
             echo "=== Secrets in $APP_NS namespace ==="
@@ -460,8 +437,8 @@ jobs:
         if: always()
         run: |
           TARGET_KUBECONFIG="$HOME/.kube/target-cluster"
-          BICEP_APP_NAME=$(grep -oP "name:\s*'\K[^']+" "$APP_FILE" 2>/dev/null | head -1)
-          if [ -z "$BICEP_APP_NAME" ]; then BICEP_APP_NAME="$APP_NAME"; fi
+          BICEP_APP_NAME=$(grep -oP "name:\s*'\K[^']+" ".radius/app.bicep" 2>/dev/null | head -1)
+          if [ -z "$BICEP_APP_NAME" ]; then BICEP_APP_NAME="app"; fi
           APP_NS="default-$BICEP_APP_NAME"
           echo "=== All resources on EKS ($APP_NS) ==="
           if [ -f "$TARGET_KUBECONFIG" ]; then
