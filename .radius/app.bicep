@@ -79,6 +79,18 @@ resource todoContainer 'Radius.Compute/containers@2025-08-01-preview' = {
       demoContainerImage: {
         source: demoImage.id
       }
+      notifications: {
+        source: notifications.id
+      }
     }
   }
+}
+
+resource notifications 'Applications.Messaging/rabbitMQQueues@2023-10-01-preview' = {
+  name: 'notifications'
+  properties: any({
+    application: todoApp.id
+    environment: environment
+    codeReference: 'src/notifications/queue.ts#L1'
+  })
 }
