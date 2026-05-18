@@ -59,6 +59,26 @@ test('it uses mysql persistence from Radius individual connection env vars', () 
     expect(process.env.MYSQL_DB).toBe('todos');
 });
 
+test('it handles Radius connection properties regardless of key casing', () => {
+    process.env.CONNECTION_MYSQLDB_PROPERTIES = JSON.stringify({
+        Host: 'mysql',
+        UserName: 'todo_list_app_user',
+        Password: 'secret',
+        DataBase: 'todos',
+    });
+
+    jest.doMock('../../src/persistence/mysql', () => mysqlPersistence);
+    jest.doMock('../../src/persistence/sqlite', () => sqlitePersistence);
+
+    const persistence = require('../../src/persistence');
+
+    expect(persistence).toBe(mysqlPersistence);
+    expect(process.env.MYSQL_HOST).toBe('mysql');
+    expect(process.env.MYSQL_USER).toBe('todo_list_app_user');
+    expect(process.env.MYSQL_PASSWORD).toBe('secret');
+    expect(process.env.MYSQL_DB).toBe('todos');
+});
+
 test('it uses sqlite persistence when no mysql connection metadata exists', () => {
     jest.doMock('../../src/persistence/mysql', () => mysqlPersistence);
     jest.doMock('../../src/persistence/sqlite', () => sqlitePersistence);

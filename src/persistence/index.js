@@ -4,13 +4,16 @@ function getConnectionProperty(connectionName, propertyName) {
     if (properties) {
         try {
             const parsedProperties = JSON.parse(properties);
-            const value = parsedProperties[propertyName.toLowerCase()];
+            const propertyKey = Object.keys(parsedProperties).find(
+                (key) => key.toLowerCase() === propertyName.toLowerCase(),
+            );
+            const value = propertyKey ? parsedProperties[propertyKey] : undefined;
 
             if (value !== undefined && value !== null) {
                 return String(value);
             }
         } catch (err) {
-            // Fall back to individual connection variables if the properties blob is malformed.
+            // Fall through to the individual connection variables fallback below.
         }
     }
 
