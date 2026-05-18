@@ -9,7 +9,9 @@ function getConnectionProperty(connectionName, propertyName) {
             if (value !== undefined && value !== null) {
                 return `${value}`;
             }
-        } catch (err) {}
+        } catch (err) {
+            return process.env[`CONNECTION_${connectionName}_${propertyName}`] || '';
+        }
     }
 
     return process.env[`CONNECTION_${connectionName}_${propertyName}`] || '';

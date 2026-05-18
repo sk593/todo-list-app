@@ -58,3 +58,12 @@ test('it uses mysql persistence from Radius individual connection env vars', () 
     expect(process.env.MYSQL_PASSWORD).toBe('secret');
     expect(process.env.MYSQL_DB).toBe('todos');
 });
+
+test('it uses sqlite persistence when no mysql connection metadata exists', () => {
+    jest.doMock('../../src/persistence/mysql', () => mysqlPersistence);
+    jest.doMock('../../src/persistence/sqlite', () => sqlitePersistence);
+
+    const persistence = require('../../src/persistence');
+
+    expect(persistence).toBe(sqlitePersistence);
+});
