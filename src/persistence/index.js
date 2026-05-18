@@ -17,16 +17,20 @@ function getConnectionProperty(connectionName, propertyName) {
         }
     }
 
-    return process.env[`CONNECTION_${connectionName}_${propertyName}`] || '';
+    return process.env[`CONNECTION_${connectionName}_${propertyName}`];
 }
 
 const mysqlHost = process.env.MYSQL_HOST || getConnectionProperty('MYSQLDB', 'HOST');
 
 if (mysqlHost) {
     process.env.MYSQL_HOST = mysqlHost;
-    process.env.MYSQL_USER = process.env.MYSQL_USER || getConnectionProperty('MYSQLDB', 'USERNAME');
-    process.env.MYSQL_PASSWORD = process.env.MYSQL_PASSWORD || getConnectionProperty('MYSQLDB', 'PASSWORD');
-    process.env.MYSQL_DB = process.env.MYSQL_DB || getConnectionProperty('MYSQLDB', 'DATABASE');
+    const mysqlUser = process.env.MYSQL_USER || getConnectionProperty('MYSQLDB', 'USERNAME');
+    const mysqlPassword = process.env.MYSQL_PASSWORD || getConnectionProperty('MYSQLDB', 'PASSWORD');
+    const mysqlDatabase = process.env.MYSQL_DB || getConnectionProperty('MYSQLDB', 'DATABASE');
+
+    if (mysqlUser) process.env.MYSQL_USER = mysqlUser;
+    if (mysqlPassword) process.env.MYSQL_PASSWORD = mysqlPassword;
+    if (mysqlDatabase) process.env.MYSQL_DB = mysqlDatabase;
 
     module.exports = require('./mysql');
 } else {
