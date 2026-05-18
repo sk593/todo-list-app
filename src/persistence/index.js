@@ -7,10 +7,10 @@ function getConnectionProperty(connectionName, propertyName) {
             const value = parsedProperties[propertyName.toLowerCase()];
 
             if (value !== undefined && value !== null) {
-                return `${value}`;
+                return String(value);
             }
         } catch (err) {
-            return process.env[`CONNECTION_${connectionName}_${propertyName}`] || '';
+            // Fall back to individual connection variables if the properties blob is malformed.
         }
     }
 
