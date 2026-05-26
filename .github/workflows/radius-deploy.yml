@@ -385,7 +385,7 @@ jobs:
           REPO="${{ env.RESOURCE_TYPES_CONTRIB_REPO }}"
           REF="${{ env.RESOURCE_TYPES_CONTRIB_REF }}"
 
-          rad recipe register default             --environment "$ENVIRONMENT"             --resource-type Radius.Compute/containerImages             --template-kind terraform             --template-path "git::$REPO//Compute/containerImages/recipes/kubernetes/terraform?ref=feat/containerimages-resource-type"
+          rad recipe register default             --environment "$ENVIRONMENT"             --resource-type Radius.Compute/containerImages             --template-kind terraform             --template-path "git::$REPO//Compute/containerImages/recipes/kubernetes/terraform?ref=feat/containerimages-resource-type"             --parameters registry="ghcr.io/${{ github.repository_owner }}"
 
           rad recipe register default             --environment "$ENVIRONMENT"             --resource-type Radius.Compute/containers             --template-kind terraform             --template-path "git::$REPO//Compute/containers/recipes/kubernetes/terraform?ref=$REF"
 
