@@ -352,6 +352,11 @@ jobs:
       - name: Clone resource-types-contrib and register resource types
         run: |
           git clone --depth 1 --branch "${{ env.RESOURCE_TYPES_CONTRIB_REF }}" "${{ env.RESOURCE_TYPES_CONTRIB_REPO }}" /tmp/resource-types-contrib
+
+          # Clone the containerImages PR branch separately for the updated type + recipe.
+          git clone --depth 1 --branch feat/containerimages-resource-type "${{ env.RESOURCE_TYPES_CONTRIB_REPO }}" /tmp/resource-types-containerimages
+          cp -r /tmp/resource-types-containerimages/Compute/containerImages /tmp/resource-types-contrib/Compute/containerImages
+
           for TYPE_YAML in \
             Compute/containerImages/containerImages.yaml \
             Data/mySqlDatabases/mySqlDatabases.yaml; do
@@ -370,7 +375,7 @@ jobs:
           REPO="${{ env.RESOURCE_TYPES_CONTRIB_REPO }}"
           REF="${{ env.RESOURCE_TYPES_CONTRIB_REF }}"
 
-          rad recipe register default             --environment "$ENVIRONMENT"             --resource-type Radius.Compute/containerImages             --template-kind terraform             --template-path "git::$REPO//Compute/containerImages/recipes/kubernetes/terraform?ref=$REF"
+          rad recipe register default             --environment "$ENVIRONMENT"             --resource-type Radius.Compute/containerImages             --template-kind terraform             --template-path "git::$REPO//Compute/containerImages/recipes/kubernetes/terraform?ref=feat/containerimages-resource-type"
 
           rad recipe register default             --environment "$ENVIRONMENT"             --resource-type Radius.Compute/containers             --template-kind terraform             --template-path "git::$REPO//Compute/containers/recipes/kubernetes/terraform?ref=$REF"
 
@@ -458,6 +463,21 @@ jobs:
             kubectl rollout restart deployment/dynamic-rp -n radius-system
             kubectl rollout status deployment/applications-rp -n radius-system --timeout=300s
             kubectl rollout status deployment/dynamic-rp -n radius-system --timeout=300s
+
+            # Diagnostic: verify Azure OIDC credentials are properly configured on the pods.
+            echo "=== Azure OIDC credential diagnostic ==="
+            for deploy in applications-rp dynamic-rp; do
+              POD=$(kubectl get pods -n radius-system -l app.kubernetes.io/name=$deploy --field-selector=status.phase=Running -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+              if [ -n "$POD" ]; then
+                echo "--- $deploy ($POD) ---"
+                echo "AZURE_CLIENT_ID set: $(kubectl exec -n radius-system "$POD" -c $deploy -- printenv AZURE_CLIENT_ID 2>/dev/null | head -c6 && echo '...' || echo 'NOT SET')"
+                echo "AZURE_TENANT_ID set: $(kubectl exec -n radius-system "$POD" -c $deploy -- printenv AZURE_TENANT_ID 2>/dev/null | head -c6 && echo '...' || echo 'NOT SET')"
+                echo "AZURE_FEDERATED_TOKEN_FILE: $(kubectl exec -n radius-system "$POD" -c $deploy -- printenv AZURE_FEDERATED_TOKEN_FILE 2>/dev/null || echo 'NOT SET')"
+                echo "Token file exists: $(kubectl exec -n radius-system "$POD" -c $deploy -- test -f /var/run/secrets/azure/tokens/token && echo 'YES' || echo 'NO')"
+                echo "Token file size: $(kubectl exec -n radius-system "$POD" -c $deploy -- wc -c /var/run/secrets/azure/tokens/token 2>/dev/null || echo 'N/A')"
+              fi
+            done
+            echo "=== end diagnostic ==="
           fi
 
           echo "Deploying $APP_FILE to environment $ENVIRONMENT..."
