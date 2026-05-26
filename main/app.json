@@ -1,11 +1,11 @@
 {
   "version": "1.0.0",
-  "generatedAt": "2026-05-26T21:52:40Z",
+  "generatedAt": "2026-05-26T21:57:22Z",
   "sourceFile": ".radius/app.bicep",
   "application": {
     "resources": [
       {
-        "appDefinitionLine": 8,
+        "appDefinitionLine": 11,
         "connections": [
           {
             "direction": "Inbound",
@@ -32,7 +32,7 @@
         "type": "Applications.Core/applications"
       },
       {
-        "appDefinitionLine": 42,
+        "appDefinitionLine": 45,
         "connections": [
           {
             "direction": "Outbound",
@@ -51,7 +51,7 @@
         "type": "Radius.Compute/containerImages"
       },
       {
-        "appDefinitionLine": 54,
+        "appDefinitionLine": 57,
         "connections": [
           {
             "direction": "Outbound",
@@ -78,7 +78,7 @@
         "type": "Radius.Compute/containers"
       },
       {
-        "appDefinitionLine": 15,
+        "appDefinitionLine": 18,
         "connections": [
           {
             "direction": "Outbound",
@@ -101,7 +101,7 @@
         "type": "Radius.Data/mySqlDatabases"
       },
       {
-        "appDefinitionLine": 26,
+        "appDefinitionLine": 29,
         "connections": [
           {
             "direction": "Outbound",
