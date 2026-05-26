@@ -354,10 +354,6 @@ jobs:
         run: |
           git clone --depth 1 --branch "${{ env.RESOURCE_TYPES_CONTRIB_REF }}" "${{ env.RESOURCE_TYPES_CONTRIB_REPO }}" /tmp/resource-types-contrib
 
-          # Clone the containerImages PR branch separately for the updated type + recipe.
-          git clone --depth 1 --branch feat/containerimages-resource-type "${{ env.RESOURCE_TYPES_CONTRIB_REPO }}" /tmp/resource-types-containerimages
-          cp -r /tmp/resource-types-containerimages/Compute/containerImages /tmp/resource-types-contrib/Compute/containerImages
-
           for TYPE_YAML in \
             Compute/containerImages/containerImages.yaml \
             Data/mySqlDatabases/mySqlDatabases.yaml; do
@@ -385,7 +381,7 @@ jobs:
           REPO="${{ env.RESOURCE_TYPES_CONTRIB_REPO }}"
           REF="${{ env.RESOURCE_TYPES_CONTRIB_REF }}"
 
-          rad recipe register default             --environment "$ENVIRONMENT"             --resource-type Radius.Compute/containerImages             --template-kind terraform             --template-path "git::$REPO//Compute/containerImages/recipes/kubernetes/terraform?ref=feat/containerimages-resource-type"             --parameters registry="ghcr.io/${{ github.repository_owner }}"
+          rad recipe register default             --environment "$ENVIRONMENT"             --resource-type Radius.Compute/containerImages             --template-kind terraform             --template-path "git::$REPO//Compute/containerImages/recipes/kubernetes/terraform?ref=$REF"             --parameters registry="ghcr.io/${{ github.repository_owner }}"
 
           rad recipe register default             --environment "$ENVIRONMENT"             --resource-type Radius.Compute/containers             --template-kind terraform             --template-path "git::$REPO//Compute/containers/recipes/kubernetes/terraform?ref=$REF"
 
