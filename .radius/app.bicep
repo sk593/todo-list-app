@@ -5,6 +5,9 @@ param environment string
 @secure()
 param password string
 
+@description('The full container image reference to build and push. Must be lowercase.')
+param image string
+
 resource todoApp 'Applications.Core/applications@2023-10-01-preview' = {
   name: 'todo-list-app'
   properties: {
@@ -44,7 +47,7 @@ resource demoImage 'Radius.Compute/containerImages@2025-08-01-preview' = {
   properties: {
     environment: environment
     application: todoApp.id
-    tag: 'latest'
+    imageTag: 'latest'
     build: {
       context: 'git::https://github.com/sk593/todo-list-app.git//demo'
     }
