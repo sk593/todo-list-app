@@ -295,11 +295,7 @@ jobs:
             OIDC_TOKEN=$(curl -sS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=api://AzureADTokenExchange" | jq -r '.value')
             kubectl create secret generic azure-oidc-token -n radius-system --from-literal=token="$OIDC_TOKEN" --dry-run=client -o yaml | kubectl apply -f -
 
-            for deploy in applications-rp dynamic-rp; do
-              kubectl patch deployment $deploy -n radius-system --type=json -p="[
-                {\"op\":\"add\",\"path\":\"/spec/template/spec/volumes/-\",\"value\":{\"name\":\"azure-oidc-token\",\"secret\":{\"secretName\":\"azure-oidc-token\"}}},
-                {\"op\":\"add\",\"path\":\"/spec/template/spec/containers/0/volumeMounts/-\",\"value\":{\"name\":\"azure-oidc-token\",\"mountPath\":\"/var/run/secrets/azure/tokens\",\"readOnly\":true}},
-                {\"op\":\"add\",\"path\":\"/spec/template/spec/containers/0/env/-\",\"value\":{\"name\":\"AZURE_CLIENT_ID\",\"value\":\"${{ vars.AZURE_CLIENT_ID }}\"}},
+            for deploy in applications-rp dynamic-rp bicep-de; do
                 {\"op\":\"add\",\"path\":\"/spec/template/spec/containers/0/env/-\",\"value\":{\"name\":\"AZURE_TENANT_ID\",\"value\":\"${{ vars.AZURE_TENANT_ID }}\"}},
                 {\"op\":\"add\",\"path\":\"/spec/template/spec/containers/0/env/-\",\"value\":{\"name\":\"AZURE_FEDERATED_TOKEN_FILE\",\"value\":\"/var/run/secrets/azure/tokens/token\"}},
                 {\"op\":\"add\",\"path\":\"/spec/template/spec/containers/0/env/-\",\"value\":{\"name\":\"ARM_CLIENT_ID\",\"value\":\"${{ vars.AZURE_CLIENT_ID }}\"}},
@@ -461,12 +457,14 @@ jobs:
             kubectl create secret generic azure-oidc-token -n radius-system --from-literal=token="$OIDC_TOKEN" --dry-run=client -o yaml | kubectl apply -f -
             kubectl rollout restart deployment/applications-rp -n radius-system
             kubectl rollout restart deployment/dynamic-rp -n radius-system
+            kubectl rollout restart deployment/bicep-de -n radius-system
             kubectl rollout status deployment/applications-rp -n radius-system --timeout=300s
             kubectl rollout status deployment/dynamic-rp -n radius-system --timeout=300s
+            kubectl rollout status deployment/bicep-de -n radius-system --timeout=300s
 
             # Diagnostic: verify Azure OIDC credentials are properly configured on the pods.
             echo "=== Azure OIDC credential diagnostic ==="
-            for deploy in applications-rp dynamic-rp; do
+            for deploy in applications-rp dynamic-rp bicep-de; do
               POD=$(kubectl get pods -n radius-system -l app.kubernetes.io/name=$deploy --field-selector=status.phase=Running -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
               if [ -n "$POD" ]; then
                 echo "--- $deploy ($POD) ---"
