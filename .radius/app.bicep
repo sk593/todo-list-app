@@ -47,9 +47,9 @@ resource demoImage 'Radius.Compute/containerImages@2025-08-01-preview' = {
   properties: {
     environment: environment
     application: todoApp.id
-    imageTag: 'latest'
+    image: image
     build: {
-      context: 'git::https://github.com/sk593/todo-list-app.git//demo'
+      context: '/app/demo'
     }
   }
 }
