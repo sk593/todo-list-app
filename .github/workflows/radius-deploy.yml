@@ -334,7 +334,13 @@ jobs:
               {\"op\":\"add\",\"path\":\"/spec/template/spec/volumes/-\",\"value\":{\"name\":\"docker-config\",\"secret\":{\"secretName\":\"docker-config\"}}},
               {\"op\":\"add\",\"path\":\"/spec/template/spec/containers/0/volumeMounts/-\",\"value\":{\"name\":\"docker-config\",\"mountPath\":\"/root/.docker\",\"readOnly\":true}}
             ]"
+          else
+            # Secret updated with fresh token — restart to pick it up.
+            kubectl rollout restart deployment/dynamic-rp -n radius-system
           fi
+          # Verify docker config is mounted
+          echo "dynamic-rp volumes: $(kubectl get deployment dynamic-rp -n radius-system -o jsonpath='{.spec.template.spec.volumes[*].name}')"
+          echo "dynamic-rp mounts: $(kubectl get deployment dynamic-rp -n radius-system -o jsonpath='{.spec.template.spec.containers[0].volumeMounts[*].name}')"
 
           echo "Waiting for rollouts..."
           kubectl rollout status deployment/applications-rp -n radius-system --timeout=300s
@@ -496,24 +502,6 @@ jobs:
             kubectl rollout status deployment/applications-rp -n radius-system --timeout=300s
             kubectl rollout status deployment/dynamic-rp -n radius-system --timeout=300s
             kubectl rollout status deployment/bicep-de -n radius-system --timeout=300s
-
-            # Diagnostic: verify Azure OIDC credentials are properly configured on the pods.
-            echo "=== Azure OIDC credential diagnostic ==="
-            for deploy in applications-rp dynamic-rp bicep-de; do
-              # bicep-de names its container 'de', others match the deployment name
-              CONTAINER=$deploy
-              if [ "$deploy" = "bicep-de" ]; then CONTAINER="de"; fi
-              POD=$(kubectl get pods -n radius-system -l app.kubernetes.io/name=$deploy --field-selector=status.phase=Running -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
-              if [ -n "$POD" ]; then
-                echo "--- $deploy ($POD) [container=$CONTAINER] ---"
-                echo "AZURE_CLIENT_ID set: $(kubectl exec -n radius-system "$POD" -c $CONTAINER -- printenv AZURE_CLIENT_ID 2>/dev/null | head -c6 && echo '...' || echo 'NOT SET')"
-                echo "AZURE_TENANT_ID set: $(kubectl exec -n radius-system "$POD" -c $CONTAINER -- printenv AZURE_TENANT_ID 2>/dev/null | head -c6 && echo '...' || echo 'NOT SET')"
-                echo "AZURE_FEDERATED_TOKEN_FILE: $(kubectl exec -n radius-system "$POD" -c $CONTAINER -- printenv AZURE_FEDERATED_TOKEN_FILE 2>/dev/null || echo 'NOT SET')"
-                echo "Token file exists: $(kubectl exec -n radius-system "$POD" -c $CONTAINER -- test -f /var/run/secrets/azure/tokens/token && echo 'YES' || echo 'NO')"
-                echo "Token file size: $(kubectl exec -n radius-system "$POD" -c $CONTAINER -- wc -c /var/run/secrets/azure/tokens/token 2>/dev/null || echo 'N/A')"
-              fi
-            done
-            echo "=== end diagnostic ==="
           fi
 
           echo "Deploying $APP_FILE to environment $ENVIRONMENT..."
