@@ -324,6 +324,18 @@ jobs:
             ]"
           fi
 
+          # Create Docker config with GHCR credentials and mount into dynamic-rp
+          # so the containerImages recipe can push images to ghcr.io.
+          DOCKER_CONFIG_JSON=$(echo -n '{"auths":{"ghcr.io":{"auth":"'$(echo -n "${{ github.actor }}:${{ github.token }}" | base64 -w0)'"}}}')
+          kubectl create secret generic docker-config -n radius-system             --from-literal=config.json="$DOCKER_CONFIG_JSON"             --dry-run=client -o yaml | kubectl apply -f -
+          if ! kubectl get deployment dynamic-rp -n radius-system -o jsonpath='{.spec.template.spec.volumes[*].name}' | grep -q docker-config; then
+            echo "Mounting Docker config into dynamic-rp..."
+            kubectl patch deployment dynamic-rp -n radius-system --type=json -p="[
+              {\"op\":\"add\",\"path\":\"/spec/template/spec/volumes/-\",\"value\":{\"name\":\"docker-config\",\"secret\":{\"secretName\":\"docker-config\"}}},
+              {\"op\":\"add\",\"path\":\"/spec/template/spec/containers/0/volumeMounts/-\",\"value\":{\"name\":\"docker-config\",\"mountPath\":\"/root/.docker\",\"readOnly\":true}}
+            ]"
+          fi
+
           echo "Waiting for rollouts..."
           kubectl rollout status deployment/applications-rp -n radius-system --timeout=300s
           kubectl rollout status deployment/dynamic-rp -n radius-system --timeout=300s
