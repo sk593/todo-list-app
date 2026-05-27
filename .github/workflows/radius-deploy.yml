@@ -495,19 +495,21 @@ jobs:
             DEPLOY_EXIT=$?
             echo "❌ rad deploy failed (exit $DEPLOY_EXIT). Capturing app pod diagnostics..."
             APP_NS="default-todo-list-app"
+            TKC="$HOME/.kube/target-cluster"
+            KC=""; [ -f "$TKC" ] && KC="--kubeconfig $TKC"
             echo "--- Pods ---"
-            kubectl get pods -n "$APP_NS" -o wide 2>&1 || true
+            kubectl $KC get pods -n "$APP_NS" -o wide 2>&1 || true
             echo "--- Pod describe ---"
-            kubectl describe pods -n "$APP_NS" 2>&1 || true
+            kubectl $KC describe pods -n "$APP_NS" 2>&1 || true
             echo "--- Pod logs ---"
-            for pod in $(kubectl get pods -n "$APP_NS" -o jsonpath='{.items[*].metadata.name}' 2>/dev/null); do
+            for pod in $(kubectl $KC get pods -n "$APP_NS" -o jsonpath='{.items[*].metadata.name}' 2>/dev/null); do
               echo "=== Logs for $pod ==="
-              kubectl logs -n "$APP_NS" "$pod" --all-containers --tail=50 2>&1 || true
+              kubectl $KC logs -n "$APP_NS" "$pod" --all-containers --tail=50 2>&1 || true
               echo "=== Previous logs for $pod ==="
-              kubectl logs -n "$APP_NS" "$pod" --all-containers --previous --tail=50 2>&1 || true
+              kubectl $KC logs -n "$APP_NS" "$pod" --all-containers --previous --tail=50 2>&1 || true
             done
             echo "--- dbsecret keys ---"
-            kubectl get secret dbsecret -n "$APP_NS" -o jsonpath='{.data}' 2>&1 || true
+            kubectl $KC get secret dbsecret -n "$APP_NS" -o jsonpath='{.data}' 2>&1 || true
             echo ""
             exit $DEPLOY_EXIT
           }
@@ -531,14 +533,16 @@ jobs:
 
           # Collect app pod logs and events from target cluster
           APP_NS="default-todo-list-app"
-          if kubectl get ns "$APP_NS" &>/dev/null; then
-            kubectl get pods -n "$APP_NS" -o wide >> /tmp/radius-logs/app-pods.txt 2>&1 || true
-            kubectl get events -n "$APP_NS" --sort-by=.lastTimestamp >> /tmp/radius-logs/app-events.txt 2>&1 || true
-            for pod in $(kubectl get pods -n "$APP_NS" -o jsonpath='{.items[*].metadata.name}' 2>/dev/null); do
-              kubectl logs -n "$APP_NS" "$pod" --all-containers --tail=100 >> "/tmp/radius-logs/app-pod-$pod.log" 2>&1 || true
-              kubectl describe pod -n "$APP_NS" "$pod" >> "/tmp/radius-logs/app-describe-$pod.txt" 2>&1 || true
+          TKC="$HOME/.kube/target-cluster"
+          KC=""; [ -f "$TKC" ] && KC="--kubeconfig $TKC"
+          if kubectl $KC get ns "$APP_NS" &>/dev/null; then
+            kubectl $KC get pods -n "$APP_NS" -o wide >> /tmp/radius-logs/app-pods.txt 2>&1 || true
+            kubectl $KC get events -n "$APP_NS" --sort-by=.lastTimestamp >> /tmp/radius-logs/app-events.txt 2>&1 || true
+            for pod in $(kubectl $KC get pods -n "$APP_NS" -o jsonpath='{.items[*].metadata.name}' 2>/dev/null); do
+              kubectl $KC logs -n "$APP_NS" "$pod" --all-containers --tail=100 >> "/tmp/radius-logs/app-pod-$pod.log" 2>&1 || true
+              kubectl $KC describe pod -n "$APP_NS" "$pod" >> "/tmp/radius-logs/app-describe-$pod.txt" 2>&1 || true
             done
-            kubectl get secret dbsecret -n "$APP_NS" -o jsonpath='{.data}' >> /tmp/radius-logs/app-dbsecret-keys.txt 2>&1 || true
+            kubectl $KC get secret dbsecret -n "$APP_NS" -o jsonpath='{.data}' >> /tmp/radius-logs/app-dbsecret-keys.txt 2>&1 || true
           fi
 
       - name: Upload Radius logs
