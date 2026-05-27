@@ -324,23 +324,20 @@ jobs:
             ]"
           fi
 
-          # Create Docker config with GHCR credentials and mount into dynamic-rp
+          # Inject GHCR credentials into the docker-config volume's backing secret
           # so the containerImages recipe can push images to ghcr.io.
+          # The dynamic-rp deployment already has a docker-config volume and mount
+          # from the Helm chart — we update the secret it references.
           DOCKER_CONFIG_JSON=$(echo -n '{"auths":{"ghcr.io":{"auth":"'$(echo -n "${{ github.actor }}:${{ github.token }}" | base64 -w0)'"}}}')
-          kubectl create secret generic docker-config -n radius-system             --from-literal=config.json="$DOCKER_CONFIG_JSON"             --dry-run=client -o yaml | kubectl apply -f -
-          if ! kubectl get deployment dynamic-rp -n radius-system -o jsonpath='{.spec.template.spec.volumes[*].name}' | grep -q docker-config; then
-            echo "Mounting Docker config into dynamic-rp..."
-            kubectl patch deployment dynamic-rp -n radius-system --type=json -p="[
-              {\"op\":\"add\",\"path\":\"/spec/template/spec/volumes/-\",\"value\":{\"name\":\"docker-config\",\"secret\":{\"secretName\":\"docker-config\"}}},
-              {\"op\":\"add\",\"path\":\"/spec/template/spec/containers/0/volumeMounts/-\",\"value\":{\"name\":\"docker-config\",\"mountPath\":\"/root/.docker\",\"readOnly\":true}}
-            ]"
-          else
-            # Secret updated with fresh token — restart to pick it up.
-            kubectl rollout restart deployment/dynamic-rp -n radius-system
+          DOCKER_SECRET=$(kubectl get deployment dynamic-rp -n radius-system -o jsonpath='{.spec.template.spec.volumes[?(@.name=="docker-config")].secret.secretName}' 2>/dev/null || echo "")
+          if [ -z "$DOCKER_SECRET" ]; then
+            DOCKER_SECRET="docker-config"
           fi
-          # Verify docker config is mounted
-          echo "dynamic-rp volumes: $(kubectl get deployment dynamic-rp -n radius-system -o jsonpath='{.spec.template.spec.volumes[*].name}')"
-          echo "dynamic-rp mounts: $(kubectl get deployment dynamic-rp -n radius-system -o jsonpath='{.spec.template.spec.containers[0].volumeMounts[*].name}')"
+          echo "Updating secret $DOCKER_SECRET with GHCR credentials..."
+          kubectl create secret generic "$DOCKER_SECRET" -n radius-system             --from-literal=config.json="$DOCKER_CONFIG_JSON"             --dry-run=client -o yaml | kubectl apply -f -
+          # Restart dynamic-rp to pick up updated secret
+          kubectl rollout restart deployment/dynamic-rp -n radius-system
+          echo "Docker config mount path: $(kubectl get deployment dynamic-rp -n radius-system -o jsonpath='{.spec.template.spec.containers[0].volumeMounts[?(@.name=="docker-config")].mountPath}')"
 
           echo "Waiting for rollouts..."
           kubectl rollout status deployment/applications-rp -n radius-system --timeout=300s
