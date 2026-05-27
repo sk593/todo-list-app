@@ -324,20 +324,12 @@ jobs:
             ]"
           fi
 
-          # Inject GHCR credentials into the docker-config volume's backing secret
-          # so the containerImages recipe can push images to ghcr.io.
-          # The dynamic-rp deployment already has a docker-config volume and mount
-          # from the Helm chart — we update the secret it references.
+          # Inject GHCR credentials into dynamic-rp so the containerImages recipe
+          # can push images to ghcr.io. The Helm chart creates a docker-config
+          # volume (emptyDir) — we override it with a Secret-backed volume.
           DOCKER_CONFIG_JSON=$(echo -n '{"auths":{"ghcr.io":{"auth":"'$(echo -n "${{ github.actor }}:${{ github.token }}" | base64 -w0)'"}}}')
-          DOCKER_SECRET=$(kubectl get deployment dynamic-rp -n radius-system -o jsonpath='{.spec.template.spec.volumes[?(@.name=="docker-config")].secret.secretName}' 2>/dev/null || echo "")
-          if [ -z "$DOCKER_SECRET" ]; then
-            DOCKER_SECRET="docker-config"
-          fi
-          echo "Updating secret $DOCKER_SECRET with GHCR credentials..."
-          kubectl create secret generic "$DOCKER_SECRET" -n radius-system             --from-literal=config.json="$DOCKER_CONFIG_JSON"             --dry-run=client -o yaml | kubectl apply -f -
-          # Restart dynamic-rp to pick up updated secret
-          kubectl rollout restart deployment/dynamic-rp -n radius-system
-          echo "Docker config mount path: $(kubectl get deployment dynamic-rp -n radius-system -o jsonpath='{.spec.template.spec.containers[0].volumeMounts[?(@.name=="docker-config")].mountPath}')"
+          kubectl create secret generic ghcr-docker-config -n radius-system             --from-literal=config.json="$DOCKER_CONFIG_JSON"             --dry-run=client -o yaml | kubectl apply -f -
+          kubectl patch deployment dynamic-rp -n radius-system --type=strategic -p='{"spec":{"template":{"spec":{"volumes":[{"name":"docker-config","secret":{"secretName":"ghcr-docker-config"}}]}}}}'
 
           echo "Waiting for rollouts..."
           kubectl rollout status deployment/applications-rp -n radius-system --timeout=300s
