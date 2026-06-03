@@ -9,6 +9,7 @@ on:
       environment:
         description: 'GitHub Environment name'
         required: true
+        default: 'dev'
       image:
         description: 'Container image for the application'
         required: false
@@ -20,7 +21,7 @@ permissions:
   packages: write
 
 env:
-  ENVIRONMENT: ${{ inputs.environment }}
+  ENVIRONMENT: ${{ inputs.environment || 'dev' }}
   APP_FILE: .radius/app.bicep
   APP_IMAGE: ${{ inputs.image || vars.RADIUS_OCI_REGISTRY || '' }}
   RESOURCE_TYPES_CONTRIB_REPO: https://github.com/radius-project/resource-types-contrib.git
@@ -30,43 +31,14 @@ jobs:
   deploy:
     name: Deploy with Radius
     runs-on: ubuntu-latest
-    environment: ${{ inputs.environment }}
+    environment: ${{ inputs.environment || 'dev' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Validate Azure environment values
-        if: ${{ vars.AZURE_CLIENT_ID != '' }}
-        env:
-          AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
-          AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
-          AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
-          GITHUB_ENVIRONMENT: ${{ inputs.environment }}
-        run: |
-          set -euo pipefail
-          for value in "$AZURE_CLIENT_ID" "$AZURE_TENANT_ID" "$AZURE_SUBSCRIPTION_ID"; do
-            echo "::add-mask::$value"
-          done
-
-          missing=0
-          for name in AZURE_CLIENT_ID AZURE_TENANT_ID AZURE_SUBSCRIPTION_ID; do
-            if [[ -z "${!name}" ]]; then
-              echo "::error::$name is empty for environment $GITHUB_ENVIRONMENT"
-              missing=1
-            fi
-          done
-          if [[ "$missing" -ne 0 ]]; then
-            exit 1
-          fi
-
-          echo "GitHub environment: $GITHUB_ENVIRONMENT"
-          echo "AZURE_CLIENT_ID length: ${#AZURE_CLIENT_ID}, suffix: ${AZURE_CLIENT_ID: -6}"
-          echo "AZURE_TENANT_ID length: ${#AZURE_TENANT_ID}, suffix: ${AZURE_TENANT_ID: -6}"
-          echo "AZURE_SUBSCRIPTION_ID length: ${#AZURE_SUBSCRIPTION_ID}, suffix: ${AZURE_SUBSCRIPTION_ID: -6}"
-
       - name: Azure Login (OIDC)
         if: ${{ vars.AZURE_CLIENT_ID != '' }}
-        uses: azure/login@v3
+        uses: azure/login@v2
         with:
           client-id: ${{ vars.AZURE_CLIENT_ID }}
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
@@ -288,33 +260,9 @@ jobs:
             done
           fi
 
-          # Inject Azure OIDC credentials into Radius pods so Terraform's azurerm
-          # provider and the Radius SDK can authenticate with Azure.
-          if [ -n "${{ vars.AZURE_CLIENT_ID }}" ]; then
-            echo "Injecting Azure OIDC credentials into Radius pods..."
-            OIDC_TOKEN=$(curl -sS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=api://AzureADTokenExchange" | jq -r '.value')
-            kubectl create secret generic azure-oidc-token -n radius-system --from-literal=token="$OIDC_TOKEN" --dry-run=client -o yaml | kubectl apply -f -
-
-            for deploy in applications-rp dynamic-rp bicep-de; do
-              kubectl patch deployment $deploy -n radius-system --type=json -p="[
-                {\"op\":\"add\",\"path\":\"/spec/template/spec/volumes/-\",\"value\":{\"name\":\"azure-oidc-token\",\"secret\":{\"secretName\":\"azure-oidc-token\"}}},
-                {\"op\":\"add\",\"path\":\"/spec/template/spec/containers/0/volumeMounts/-\",\"value\":{\"name\":\"azure-oidc-token\",\"mountPath\":\"/var/run/secrets/azure/tokens\",\"readOnly\":true}},
-                {\"op\":\"add\",\"path\":\"/spec/template/spec/containers/0/env/-\",\"value\":{\"name\":\"AZURE_CLIENT_ID\",\"value\":\"${{ vars.AZURE_CLIENT_ID }}\"}},
-                {\"op\":\"add\",\"path\":\"/spec/template/spec/containers/0/env/-\",\"value\":{\"name\":\"AZURE_TENANT_ID\",\"value\":\"${{ vars.AZURE_TENANT_ID }}\"}},
-                {\"op\":\"add\",\"path\":\"/spec/template/spec/containers/0/env/-\",\"value\":{\"name\":\"AZURE_FEDERATED_TOKEN_FILE\",\"value\":\"/var/run/secrets/azure/tokens/token\"}},
-                {\"op\":\"add\",\"path\":\"/spec/template/spec/containers/0/env/-\",\"value\":{\"name\":\"ARM_CLIENT_ID\",\"value\":\"${{ vars.AZURE_CLIENT_ID }}\"}},
-                {\"op\":\"add\",\"path\":\"/spec/template/spec/containers/0/env/-\",\"value\":{\"name\":\"ARM_TENANT_ID\",\"value\":\"${{ vars.AZURE_TENANT_ID }}\"}},
-                {\"op\":\"add\",\"path\":\"/spec/template/spec/containers/0/env/-\",\"value\":{\"name\":\"ARM_SUBSCRIPTION_ID\",\"value\":\"${{ vars.AZURE_SUBSCRIPTION_ID }}\"}},
-                {\"op\":\"add\",\"path\":\"/spec/template/spec/containers/0/env/-\",\"value\":{\"name\":\"ARM_USE_OIDC\",\"value\":\"true\"}},
-                {\"op\":\"add\",\"path\":\"/spec/template/spec/containers/0/env/-\",\"value\":{\"name\":\"ARM_OIDC_TOKEN_FILE_PATH\",\"value\":\"/var/run/secrets/azure/tokens/token\"}}
-              ]"
-            done
-          fi
-
           echo "Waiting for rollouts..."
           kubectl rollout status deployment/applications-rp -n radius-system --timeout=300s
           kubectl rollout status deployment/dynamic-rp -n radius-system --timeout=300s
-          kubectl rollout status deployment/bicep-de -n radius-system --timeout=300s
           echo "External deployment target configured."
 
       - name: Configure Radius environment
@@ -353,7 +301,6 @@ jobs:
       - name: Clone resource-types-contrib and register resource types
         run: |
           git clone --depth 1 --branch "${{ env.RESOURCE_TYPES_CONTRIB_REF }}" "${{ env.RESOURCE_TYPES_CONTRIB_REPO }}" /tmp/resource-types-contrib
-
           for TYPE_YAML in \
             Compute/containerImages/containerImages.yaml \
             Data/mySqlDatabases/mySqlDatabases.yaml; do
@@ -366,15 +313,6 @@ jobs:
             fi
           done
           echo "✅ Resource types registered"
-
-          # Build a local Bicep extension from the containerImages type definition.
-          # The published radiusCompute extension does not include containerImages yet.
-          CONTAINER_IMAGES_YAML="/tmp/resource-types-contrib/Compute/containerImages/containerImages.yaml"
-          if [ -f "$CONTAINER_IMAGES_YAML" ]; then
-            echo "Building local Bicep extension for containerImages..."
-            rad bicep publish-extension -f "$CONTAINER_IMAGES_YAML" --target ./radiuscompute.tgz --force
-            echo "✅ radiuscompute.tgz built"
-          fi
 
       - name: Register terraform recipes from resource-types-contrib
         run: |
@@ -391,21 +329,31 @@ jobs:
 
           rad recipe register default             --environment "$ENVIRONMENT"             --resource-type Radius.Data/postgreSqlDatabases             --template-kind terraform             --template-path "git::$REPO//Data/postgreSqlDatabases/recipes/kubernetes/terraform?ref=$REF"
 
+          # mySqlDatabases recipe is provider-specific. The contrib repo only
+          # ships terraform recipes for AWS and Azure for this resource — there
+          # is no kubernetes terraform variant — so we gate strictly on the
+          # configured provider and skip registration otherwise.
+          if [ -n "${{ vars.AWS_IAM_ROLE_ARN }}" ]; then
+            rad recipe register default \
+              --environment "$ENVIRONMENT" \
+              --resource-type Radius.Data/mySqlDatabases \
+              --template-kind terraform \
+              --template-path "git::$REPO//Data/mySqlDatabases/recipes/aws/terraform?ref=$REF" \
+              --parameters vpcId="${{ vars.RADIUS_VPC_ID }}" \
+              --parameters 'subnetIds=${{ vars.RADIUS_SUBNET_IDS }}'
+          elif [ -n "${{ vars.AZURE_CLIENT_ID }}" ]; then
+            rad recipe register default \
+              --environment "$ENVIRONMENT" \
+              --resource-type Radius.Data/mySqlDatabases \
+              --template-kind terraform \
+              --template-path "git::$REPO//Data/mySqlDatabases/recipes/azure/terraform?ref=$REF" \
+              --parameters azure_subscription_id="${{ vars.AZURE_SUBSCRIPTION_ID }}" \
+              --parameters resourceGroupName="${{ vars.AZURE_RESOURCE_GROUP }}"
+          else
+            echo "Skipping mySqlDatabases recipe — no AWS or Azure provider configured."
+          fi
+
           rad recipe register default             --environment "$ENVIRONMENT"             --resource-type Radius.Security/secrets             --template-kind terraform             --template-path "git::$REPO//Security/secrets/recipes/kubernetes/terraform?ref=$REF"
-
-      - name: Register MySQL recipe (AWS)
-        if: ${{ vars.AWS_IAM_ROLE_ARN != '' }}
-        run: |
-          REPO="${{ env.RESOURCE_TYPES_CONTRIB_REPO }}"
-          REF="${{ env.RESOURCE_TYPES_CONTRIB_REF }}"
-          rad recipe register default             --environment "$ENVIRONMENT"             --resource-type Radius.Data/mySqlDatabases             --template-kind terraform             --template-path "git::$REPO//Data/mySqlDatabases/recipes/aws/terraform?ref=$REF"             --parameters vpcId="${{ vars.RADIUS_VPC_ID }}"             --parameters 'subnetIds=${{ vars.RADIUS_SUBNET_IDS }}'
-
-      - name: Register MySQL recipe (Azure)
-        if: ${{ vars.AZURE_CLIENT_ID != '' }}
-        run: |
-          REPO="${{ env.RESOURCE_TYPES_CONTRIB_REPO }}"
-          REF="${{ env.RESOURCE_TYPES_CONTRIB_REF }}"
-          rad recipe register default             --environment "$ENVIRONMENT"             --resource-type Radius.Data/mySqlDatabases             --template-kind terraform             --template-path "git::$REPO//Data/mySqlDatabases/recipes/azure/terraform?ref=$REF"             --parameters azure_subscription_id="${{ vars.AZURE_SUBSCRIPTION_ID }}"             --parameters resourceGroupName="${{ vars.AZURE_RESOURCE_GROUP }}"             --parameters location="${{ vars.AZURE_LOCATION || 'eastus' }}"
 
       - name: Verify app namespace on target cluster
         run: |
@@ -429,7 +377,7 @@ jobs:
             },
             "extensions": {
               "radius": "br:biceptypes.azurecr.io/radius:latest",
-              "radiusCompute": "./radiuscompute.tgz",
+              "radiusCompute": "br:biceptypes.azurecr.io/radiuscompute:latest",
               "radiusData": "br:biceptypes.azurecr.io/radiusdata:latest",
               "radiusSecurity": "br:biceptypes.azurecr.io/radiussecurity:latest",
               "aws": "br:biceptypes.azurecr.io/aws:latest"
@@ -460,30 +408,7 @@ jobs:
             kubectl rollout status deployment/dynamic-rp -n radius-system --timeout=300s
           fi
 
-          # Refresh Azure OIDC token before deploying.
-          if [ -n "${{ vars.AZURE_CLIENT_ID }}" ]; then
-            echo "Refreshing Azure OIDC token..."
-            OIDC_TOKEN=$(curl -sS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=api://AzureADTokenExchange" | jq -r '.value')
-            kubectl create secret generic azure-oidc-token -n radius-system --from-literal=token="$OIDC_TOKEN" --dry-run=client -o yaml | kubectl apply -f -
-            kubectl rollout restart deployment/applications-rp -n radius-system
-            kubectl rollout restart deployment/dynamic-rp -n radius-system
-            kubectl rollout restart deployment/bicep-de -n radius-system
-            kubectl rollout status deployment/applications-rp -n radius-system --timeout=300s
-            kubectl rollout status deployment/dynamic-rp -n radius-system --timeout=300s
-            kubectl rollout status deployment/bicep-de -n radius-system --timeout=300s
-          fi
-
           echo "Deploying $APP_FILE to environment $ENVIRONMENT..."
-
-          # Ensure the radiusCompute extension is imported for Radius.Compute/containerImages.
-          # Without it, the Bicep compiler routes Radius.Compute types to Azure ARM instead of UCP.
-          if ! grep -q 'extension radiusCompute' "$APP_FILE"; then
-            echo "Injecting 'extension radiusCompute' into $APP_FILE"
-            sed -i '/^extension radius$/a extension radiusCompute' "$APP_FILE"
-          fi
-          echo "Bicep extensions in $APP_FILE:"
-          grep '^extension ' "$APP_FILE" || true
-
           DEPLOY_PARAMS=""
           if [ -n "$APP_IMAGE" ]; then
             DEPLOY_PARAMS="--parameters image=$APP_IMAGE"
@@ -491,28 +416,7 @@ jobs:
           if [ -n "${{ secrets.RADIUS_DB_PASSWORD }}" ]; then
             DEPLOY_PARAMS="$DEPLOY_PARAMS --parameters password=${{ secrets.RADIUS_DB_PASSWORD }}"
           fi
-          rad deploy "$APP_FILE" --environment "$ENVIRONMENT" $DEPLOY_PARAMS || {
-            DEPLOY_EXIT=$?
-            echo "❌ rad deploy failed (exit $DEPLOY_EXIT). Capturing app pod diagnostics..."
-            APP_NS="default-todo-list-app"
-            TKC="$HOME/.kube/target-cluster"
-            KC=""; [ -f "$TKC" ] && KC="--kubeconfig $TKC"
-            echo "--- Pods ---"
-            kubectl $KC get pods -n "$APP_NS" -o wide 2>&1 || true
-            echo "--- Pod describe ---"
-            kubectl $KC describe pods -n "$APP_NS" 2>&1 || true
-            echo "--- Pod logs ---"
-            for pod in $(kubectl $KC get pods -n "$APP_NS" -o jsonpath='{.items[*].metadata.name}' 2>/dev/null); do
-              echo "=== Logs for $pod ==="
-              kubectl $KC logs -n "$APP_NS" "$pod" --all-containers --tail=50 2>&1 || true
-              echo "=== Previous logs for $pod ==="
-              kubectl $KC logs -n "$APP_NS" "$pod" --all-containers --previous --tail=50 2>&1 || true
-            done
-            echo "--- dbsecret keys ---"
-            kubectl $KC get secret dbsecret -n "$APP_NS" -o jsonpath='{.data}' 2>&1 || true
-            echo ""
-            exit $DEPLOY_EXIT
-          }
+          rad deploy "$APP_FILE" --environment "$ENVIRONMENT" $DEPLOY_PARAMS
           echo ""
           echo "✅ Deployment complete."
 
@@ -530,20 +434,6 @@ jobs:
           done
           kubectl get pods -n radius-system -o wide >> /tmp/radius-logs/pods.txt 2>&1 || true
           kubectl get events -n radius-system --sort-by=.lastTimestamp >> /tmp/radius-logs/events.txt 2>&1 || true
-
-          # Collect app pod logs and events from target cluster
-          APP_NS="default-todo-list-app"
-          TKC="$HOME/.kube/target-cluster"
-          KC=""; [ -f "$TKC" ] && KC="--kubeconfig $TKC"
-          if kubectl $KC get ns "$APP_NS" &>/dev/null; then
-            kubectl $KC get pods -n "$APP_NS" -o wide >> /tmp/radius-logs/app-pods.txt 2>&1 || true
-            kubectl $KC get events -n "$APP_NS" --sort-by=.lastTimestamp >> /tmp/radius-logs/app-events.txt 2>&1 || true
-            for pod in $(kubectl $KC get pods -n "$APP_NS" -o jsonpath='{.items[*].metadata.name}' 2>/dev/null); do
-              kubectl $KC logs -n "$APP_NS" "$pod" --all-containers --tail=100 >> "/tmp/radius-logs/app-pod-$pod.log" 2>&1 || true
-              kubectl $KC describe pod -n "$APP_NS" "$pod" >> "/tmp/radius-logs/app-describe-$pod.txt" 2>&1 || true
-            done
-            kubectl $KC get secret dbsecret -n "$APP_NS" -o jsonpath='{.data}' >> /tmp/radius-logs/app-dbsecret-keys.txt 2>&1 || true
-          fi
 
       - name: Upload Radius logs
         if: failure()
