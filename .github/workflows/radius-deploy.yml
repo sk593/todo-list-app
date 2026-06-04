@@ -455,14 +455,17 @@ jobs:
           echo "Bicep extensions in $APP_FILE:"
           grep '^extension ' "$APP_FILE" || true
 
-          DEPLOY_PARAMS=""
+          DEPLOY_PARAMS=()
           if [ -n "$APP_IMAGE" ]; then
-            DEPLOY_PARAMS="--parameters image=$APP_IMAGE"
+            DEPLOY_PARAMS+=(--parameters "image=$APP_IMAGE")
           fi
-          if [ -n "${{ secrets.RADIUS_DB_PASSWORD }}" ]; then
-            DEPLOY_PARAMS="$DEPLOY_PARAMS --parameters password=${{ secrets.RADIUS_DB_PASSWORD }}"
+          # Pass the DB password via env var to avoid shell expansion/mangling
+          # of special characters (#, $, &, etc.) on the rad deploy command line.
+          export RADIUS_DB_PASSWORD="${{ secrets.RADIUS_DB_PASSWORD }}"
+          if [ -n "$RADIUS_DB_PASSWORD" ]; then
+            DEPLOY_PARAMS+=(--parameters "password=$RADIUS_DB_PASSWORD")
           fi
-          rad deploy "$APP_FILE" --environment "$ENVIRONMENT" $DEPLOY_PARAMS
+          rad deploy "$APP_FILE" --environment "$ENVIRONMENT" "${DEPLOY_PARAMS[@]}"
           echo ""
           echo "✅ Deployment complete."
 
