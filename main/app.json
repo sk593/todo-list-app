@@ -1,6 +1,6 @@
 {
   "version": "1.0.0",
-  "generatedAt": "2026-05-27T20:34:52Z",
+  "generatedAt": "2026-06-04T18:01:39Z",
   "sourceFile": ".radius/app.bicep",
   "application": {
     "resources": [
@@ -17,7 +17,7 @@
           },
           {
             "direction": "Inbound",
-            "id": "/planes/radius/local/resourcegroups/default/providers/Radius.Data/mySqlDatabases/mysqldb"
+            "id": "/planes/radius/local/resourcegroups/default/providers/Radius.Data/mySqlDatabases/sqldb"
           },
           {
             "direction": "Inbound",
@@ -59,7 +59,7 @@
           },
           {
             "direction": "Outbound",
-            "id": "/planes/radius/local/resourcegroups/default/providers/Radius.Data/mySqlDatabases/mysqldb"
+            "id": "/planes/radius/local/resourcegroups/default/providers/Radius.Data/mySqlDatabases/sqldb"
           },
           {
             "direction": "Outbound",
@@ -94,8 +94,8 @@
           }
         ],
         "diffHash": "sha256:cbc403be5f07be5a995339d5910c4f0ea9b66142a00c63c43057cdc98b5a4aec",
-        "id": "/planes/radius/local/resourcegroups/default/providers/Radius.Data/mySqlDatabases/mysqldb",
-        "name": "mysqldb",
+        "id": "/planes/radius/local/resourcegroups/default/providers/Radius.Data/mySqlDatabases/sqldb",
+        "name": "sqldb",
         "outputResources": [],
         "provisioningState": "Succeeded",
         "type": "Radius.Data/mySqlDatabases"
@@ -109,7 +109,7 @@
           },
           {
             "direction": "Inbound",
-            "id": "/planes/radius/local/resourcegroups/default/providers/Radius.Data/mySqlDatabases/mysqldb"
+            "id": "/planes/radius/local/resourcegroups/default/providers/Radius.Data/mySqlDatabases/sqldb"
           }
         ],
         "diffHash": "sha256:c6a392457da656bdb82f2a4d9876f03f27b174399154c26d630e5c665bc3cd11",
