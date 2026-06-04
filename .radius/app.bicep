@@ -16,7 +16,7 @@ resource todoApp 'Applications.Core/applications@2023-10-01-preview' = {
 }
 
 resource database 'Radius.Data/mySqlDatabases@2025-08-01-preview' = {
-  name: 'mysqldb'
+  name: 'sqldb'
   properties: {
     environment: environment
     application: todoApp.id
