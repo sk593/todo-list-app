@@ -186,7 +186,9 @@ jobs:
             for deploy in applications-rp dynamic-rp bicep-de; do
               kubectl patch deployment $deploy -n radius-system --type=json -p="$PATCHES" 2>/dev/null || true
             done
-            kubectl rollout status deployment --all -n radius-system --timeout=300s
+            kubectl rollout status deployment/applications-rp -n radius-system --timeout=300s
+            kubectl rollout status deployment/dynamic-rp -n radius-system --timeout=300s
+            kubectl rollout status deployment/bicep-de -n radius-system --timeout=300s
           fi
           echo "✅ Cloud OIDC tokens projected into Radius pods."
 
