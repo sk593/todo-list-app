@@ -338,9 +338,6 @@ jobs:
       - name: Register Azure credentials with Radius
         if: ${{ vars.AZURE_CLIENT_ID != '' }}
         run: |
-          rad credential register azure wi \
-            --client-id "${{ vars.AZURE_CLIENT_ID }}" \
-            --tenant-id "${{ vars.AZURE_TENANT_ID }}"
           rad env update "$ENVIRONMENT" \
             --azure-subscription-id "${{ vars.AZURE_SUBSCRIPTION_ID }}" \
             --azure-resource-group "${{ vars.AZURE_RESOURCE_GROUP }}"
@@ -348,7 +345,6 @@ jobs:
       - name: Register AWS credentials with Radius
         if: ${{ vars.AWS_IAM_ROLE_ARN != '' }}
         run: |
-          rad credential register aws irsa             --iam-role "${{ vars.AWS_IAM_ROLE_ARN }}"
           rad env update "$ENVIRONMENT"             --aws-region "${{ vars.AWS_REGION }}"             --aws-account-id "${{ vars.AWS_ACCOUNT_ID }}"
 
       - name: Clone resource-types-contrib and register resource types
