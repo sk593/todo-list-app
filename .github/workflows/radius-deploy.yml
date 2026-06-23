@@ -375,7 +375,7 @@ jobs:
             MYSQL_RECIPE=$(cat <<EOF
           'Radius.Data/mySqlDatabases': {
             kind: 'terraform'
-            source: 'git::$REPO//Data/mySqlDatabases/recipes/azure/terraform?ref=$REF'
+            source: 'git::$REPO//Data/mySqlDatabases/recipes/azure/terraform?ref=sk593/add-azure-mysql-recipe'
             parameters: {
               azure_subscription_id: '${{ vars.AZURE_SUBSCRIPTION_ID }}'
               resourceGroupName: '${{ vars.AZURE_RESOURCE_GROUP }}'
