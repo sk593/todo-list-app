@@ -24,7 +24,7 @@ env:
   APP_FILE: .radius/app.bicep
   APP_IMAGE: ${{ inputs.image || vars.RADIUS_OCI_REGISTRY || '' }}
   RESOURCE_TYPES_CONTRIB_REPO: https://github.com/radius-project/resource-types-contrib.git
-  RESOURCE_TYPES_CONTRIB_REF: update-secrets
+  RESOURCE_TYPES_CONTRIB_REF: main
 
 jobs:
   deploy:
@@ -51,7 +51,9 @@ jobs:
           aws-region: ${{ vars.AWS_REGION }}
 
       - name: Get target cluster kubeconfig
-        run: mkdir -p "$HOME/.kube"
+        run: |
+          mkdir -p "$HOME/.kube"
+          echo "RADIUS_TARGET_KUBECONFIG=$HOME/.kube/target-cluster" >> "$GITHUB_ENV"
 
       - name: Connect to AKS cluster
         if: ${{ vars.AZURE_CLIENT_ID != '' && vars.RADIUS_K8S_CLUSTER != '' }}
@@ -60,7 +62,7 @@ jobs:
             --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
             --name "${{ vars.RADIUS_K8S_CLUSTER }}" \
             --subscription "${{ vars.AZURE_SUBSCRIPTION_ID }}" \
-            --file "$HOME/.kube/target-cluster"
+            --file "$RADIUS_TARGET_KUBECONFIG"
 
       - name: Connect to EKS cluster
         if: ${{ vars.AWS_IAM_ROLE_ARN != '' && vars.RADIUS_K8S_CLUSTER != '' }}
@@ -68,7 +70,7 @@ jobs:
           CLUSTER="${{ vars.RADIUS_K8S_CLUSTER }}"
           REGION="${{ vars.AWS_REGION }}"
           ROLE_ARN="${{ vars.AWS_IAM_ROLE_ARN }}"
-          TARGET="$HOME/.kube/target-cluster"
+          TARGET="$RADIUS_TARGET_KUBECONFIG"
 
           # Ensure the IAM role has access to the EKS cluster.
           # Creates an access entry if one doesn't already exist.
@@ -100,12 +102,18 @@ jobs:
 
       - name: Create ephemeral Radius control plane cluster
         run: |
-          k3d cluster create radius-cp             --volume /var/run/docker.sock:/var/run/docker.sock             --volume "${{ github.workspace }}/:/app/demo"             --wait
+          k3d cluster create radius-cp \
+            --volume /var/run/docker.sock:/var/run/docker.sock \
+            --volume "${{ github.workspace }}/:/app/demo" \
+            --k3s-arg "--disable=traefik@server:*" \
+            --wait
           kubectl wait --for=condition=Ready node --all --timeout=120s
 
       - name: Install Radius CLI
         run: |
-          wget -q "https://raw.githubusercontent.com/radius-project/radius/main/deploy/install.sh" -O - | /bin/bash
+          # Install the edge build of the rad CLI. The edge CLI installs the
+          # matching edge control-plane chart in the `rad install` step below.
+          wget -q "https://raw.githubusercontent.com/radius-project/radius/main/deploy/install.sh" -O - | /bin/bash -s edge
           rad version
 
       - name: Install Terraform
@@ -117,12 +125,7 @@ jobs:
         run: |
           rad install kubernetes \
             --set rp.publicEndpointOverride=localhost \
-            --set global.imageRegistry=ghcr.io/willdavsmith/radius \
-            --set global.imageTag=042826demo \
-            --set de.image=ghcr.io/radius-project/deployment-engine \
-            --set de.tag=latest \
-            --set dashboard.image=ghcr.io/radius-project/dashboard \
-            --set dashboard.tag=latest
+            --set dynamicrp.buildkit.enabled=true
           kubectl wait --for=condition=Available deployment --all -n radius-system --timeout=300s
 
       - name: Project cloud OIDC tokens into Radius pods
@@ -144,132 +147,58 @@ jobs:
             echo "Projecting Azure OIDC token..."
             AZ_TOKEN=$(curl -sS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
               "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=api://AzureADTokenExchange" | jq -r '.value')
+            # The secret data key becomes the mounted file name, so it must be
+            # 'azure-identity-token' -- the file Radius and the Terraform azurerm
+            # provider read from /var/run/secrets/azure/tokens/.
             kubectl create secret generic azure-oidc-token -n radius-system \
-              --from-literal=token="$AZ_TOKEN" --dry-run=client -o yaml | kubectl apply -f -
+              --from-literal=azure-identity-token="$AZ_TOKEN" --dry-run=client -o yaml | kubectl apply -f -
           fi
 
-          # Mount the token secrets into Radius pods at the paths the SDKs expect.
-          PATCHES=""
+          # Mount the projected token at the fixed paths Radius reads from. The
+          # cloud identity selectors (AWS role ARN, Azure client/tenant id) are NOT
+          # set as SDK-native env vars here -- they come from the UCP credential
+          # registered later via `rad credential register`. We only project the raw
+          # token file that the credential needs for the federated token exchange.
+
+          # AWS IRSA: the UCP AWS proxy (ucp) and the Terraform AWS provider
+          # (dynamic-rp) both read the token from the hard-coded path
+          # /var/run/secrets/eks.amazonaws.com/serviceaccount/token.
           if [ -n "${{ vars.AWS_IAM_ROLE_ARN }}" ]; then
-            PATCHES='[
+            AWS_PATCH='[
               {"op":"add","path":"/spec/template/spec/volumes/-","value":{"name":"aws-oidc-token","secret":{"secretName":"aws-oidc-token"}}},
-              {"op":"add","path":"/spec/template/spec/containers/0/volumeMounts/-","value":{"name":"aws-oidc-token","mountPath":"/var/run/secrets/eks.amazonaws.com/serviceaccount","readOnly":true}},
-              {"op":"add","path":"/spec/template/spec/containers/0/env/-","value":{"name":"AWS_WEB_IDENTITY_TOKEN_FILE","value":"/var/run/secrets/eks.amazonaws.com/serviceaccount/token"}},
-              {"op":"add","path":"/spec/template/spec/containers/0/env/-","value":{"name":"AWS_ROLE_ARN","value":"${{ vars.AWS_IAM_ROLE_ARN }}"}},
-              {"op":"add","path":"/spec/template/spec/containers/0/env/-","value":{"name":"AWS_REGION","value":"${{ vars.AWS_REGION }}"}},
-              {"op":"add","path":"/spec/template/spec/containers/0/env/-","value":{"name":"AWS_DEFAULT_REGION","value":"${{ vars.AWS_REGION }}"}}
+              {"op":"add","path":"/spec/template/spec/containers/0/volumeMounts/-","value":{"name":"aws-oidc-token","mountPath":"/var/run/secrets/eks.amazonaws.com/serviceaccount","readOnly":true}}
             ]'
+            for deploy in applications-rp dynamic-rp ucp; do
+              kubectl patch deployment $deploy -n radius-system --type=json -p="$AWS_PATCH" 2>/dev/null || true
+            done
           fi
 
+          # Azure workload identity: the Go UCPCredential (applications-rp), the
+          # .NET Bicep DE (bicep-de) and the Terraform azurerm provider (dynamic-rp)
+          # all read /var/run/secrets/azure/tokens/azure-identity-token.
+          # AZURE_FEDERATED_TOKEN_FILE is still required because armauth builds the
+          # WorkloadIdentityCredential with an empty TokenFilePath and falls back to
+          # this env var to locate the token.
           if [ -n "${{ vars.AZURE_CLIENT_ID }}" ]; then
-            AZ_PATCHES='[
+            AZ_PATCH='[
               {"op":"add","path":"/spec/template/spec/volumes/-","value":{"name":"azure-oidc-token","secret":{"secretName":"azure-oidc-token"}}},
               {"op":"add","path":"/spec/template/spec/containers/0/volumeMounts/-","value":{"name":"azure-oidc-token","mountPath":"/var/run/secrets/azure/tokens","readOnly":true}},
-              {"op":"add","path":"/spec/template/spec/containers/0/env/-","value":{"name":"AZURE_CLIENT_ID","value":"${{ vars.AZURE_CLIENT_ID }}"}},
-              {"op":"add","path":"/spec/template/spec/containers/0/env/-","value":{"name":"AZURE_TENANT_ID","value":"${{ vars.AZURE_TENANT_ID }}"}},
-              {"op":"add","path":"/spec/template/spec/containers/0/env/-","value":{"name":"AZURE_FEDERATED_TOKEN_FILE","value":"/var/run/secrets/azure/tokens/token"}},
-              {"op":"add","path":"/spec/template/spec/containers/0/env/-","value":{"name":"ARM_USE_OIDC","value":"true"}},
-              {"op":"add","path":"/spec/template/spec/containers/0/env/-","value":{"name":"ARM_CLIENT_ID","value":"${{ vars.AZURE_CLIENT_ID }}"}},
-              {"op":"add","path":"/spec/template/spec/containers/0/env/-","value":{"name":"ARM_TENANT_ID","value":"${{ vars.AZURE_TENANT_ID }}"}},
-              {"op":"add","path":"/spec/template/spec/containers/0/env/-","value":{"name":"ARM_SUBSCRIPTION_ID","value":"${{ vars.AZURE_SUBSCRIPTION_ID }}"}},
-              {"op":"add","path":"/spec/template/spec/containers/0/env/-","value":{"name":"ARM_OIDC_TOKEN_FILE_PATH","value":"/var/run/secrets/azure/tokens/token"}}
+              {"op":"add","path":"/spec/template/spec/containers/0/env/-","value":{"name":"AZURE_FEDERATED_TOKEN_FILE","value":"/var/run/secrets/azure/tokens/azure-identity-token"}}
             ]'
-            if [ -n "$PATCHES" ]; then
-              # Merge both patch arrays
-              PATCHES=$(echo "$PATCHES" "$AZ_PATCHES" | jq -s '.[0] + .[1]')
-            else
-              PATCHES="$AZ_PATCHES"
-            fi
-          fi
-
-          if [ -n "$PATCHES" ]; then
             for deploy in applications-rp dynamic-rp bicep-de; do
-              kubectl patch deployment $deploy -n radius-system --type=json -p="$PATCHES" 2>/dev/null || true
+              kubectl patch deployment $deploy -n radius-system --type=json -p="$AZ_PATCH" 2>/dev/null || true
             done
-            kubectl rollout status deployment/applications-rp -n radius-system --timeout=300s
-            kubectl rollout status deployment/dynamic-rp -n radius-system --timeout=300s
-            kubectl rollout status deployment/bicep-de -n radius-system --timeout=300s
           fi
+
+          # Wait for any patched deployments to roll out.
+          for deploy in applications-rp dynamic-rp bicep-de ucp; do
+            kubectl rollout status deployment/$deploy -n radius-system --timeout=300s || true
+          done
           echo "✅ Cloud OIDC tokens projected into Radius pods."
-
-      - name: Patch dynamic-rp with Docker support
-        run: |
-          # Mount Docker socket, source directory, install docker-cli via init container,
-          # and run as root to access the socket
-          kubectl patch deployment dynamic-rp -n radius-system --type=json -p='[
-            {"op": "add", "path": "/spec/template/spec/volumes/-",
-             "value": {"name": "docker-sock", "hostPath": {"path": "/var/run/docker.sock", "type": "Socket"}}},
-            {"op": "add", "path": "/spec/template/spec/volumes/-",
-             "value": {"name": "docker-bin", "emptyDir": {}}},
-            {"op": "add", "path": "/spec/template/spec/volumes/-",
-             "value": {"name": "app-source", "hostPath": {"path": "/app/demo", "type": "Directory"}}},
-            {"op": "add", "path": "/spec/template/spec/containers/0/volumeMounts/-",
-             "value": {"name": "docker-sock", "mountPath": "/var/run/docker.sock"}},
-            {"op": "add", "path": "/spec/template/spec/containers/0/volumeMounts/-",
-             "value": {"name": "docker-bin", "mountPath": "/usr/local/bin/docker", "subPath": "docker"}},
-            {"op": "add", "path": "/spec/template/spec/containers/0/volumeMounts/-",
-             "value": {"name": "app-source", "mountPath": "/app/demo", "readOnly": true}},
-            {"op": "replace", "path": "/spec/template/spec/containers/0/securityContext",
-             "value": {"allowPrivilegeEscalation": false, "runAsUser": 0}},
-            {"op": "add", "path": "/spec/template/spec/containers/0/resources",
-             "value": {"requests": {"memory": "512Mi", "cpu": "500m"}, "limits": {"memory": "2Gi", "cpu": "2"}}},
-            {"op": "add", "path": "/spec/template/spec/initContainers/-",
-             "value": {
-               "name": "install-docker-cli",
-               "image": "docker:cli",
-               "command": ["cp", "/usr/local/bin/docker", "/out/docker"],
-               "volumeMounts": [{"name": "docker-bin", "mountPath": "/out"}]
-             }}
-          ]'
-          kubectl rollout status deployment/dynamic-rp -n radius-system --timeout=120s
-
-          # Wait for old pods to terminate, then get the running pod
-          sleep 10
-          kubectl delete pod -n radius-system -l app.kubernetes.io/name=dynamic-rp --field-selector=status.phase!=Running --ignore-not-found || true
-          kubectl wait --for=condition=Ready pod -n radius-system -l app.kubernetes.io/name=dynamic-rp --timeout=120s
-
-          # Verify docker and source are accessible
-          POD=$(kubectl get pods -n radius-system -l app.kubernetes.io/name=dynamic-rp --field-selector=status.phase=Running -o jsonpath='{.items[0].metadata.name}')
-          kubectl exec -n radius-system "$POD" -c dynamic-rp -- docker version
-          kubectl exec -n radius-system "$POD" -c dynamic-rp -- ls /app/demo/Dockerfile
-
-          # Create a Docker config secret for GHCR authentication so Terraform's Docker provider can push images.
-          DOCKER_CONFIG_JSON=$(echo -n '{"auths":{"ghcr.io":{"auth":"'$(echo -n "${{ github.actor }}:${{ secrets.GHCR_PAT || secrets.GITHUB_TOKEN }}" | base64 -w0)'"}}}')
-          kubectl create secret generic docker-config -n radius-system --from-literal=config.json="$DOCKER_CONFIG_JSON" --dry-run=client -o yaml | kubectl apply -f -
-
-          # Mount a writable emptyDir at /root/.docker and use an init container to copy
-          # the config.json from the secret. This way buildx can write to /root/.docker/buildx.
-          kubectl patch deployment dynamic-rp -n radius-system --type=json -p='[
-            {"op": "add", "path": "/spec/template/spec/volumes/-",
-             "value": {"name": "docker-config-secret", "secret": {"secretName": "docker-config"}}},
-            {"op": "add", "path": "/spec/template/spec/volumes/-",
-             "value": {"name": "docker-config", "emptyDir": {}}},
-            {"op": "add", "path": "/spec/template/spec/containers/0/volumeMounts/-",
-             "value": {"name": "docker-config", "mountPath": "/root/.docker"}},
-            {"op": "add", "path": "/spec/template/spec/containers/0/env/-",
-             "value": {"name": "DOCKER_CONFIG", "value": "/root/.docker"}},
-            {"op": "add", "path": "/spec/template/spec/initContainers/-",
-             "value": {
-               "name": "copy-docker-config",
-               "image": "busybox:latest",
-               "command": ["sh", "-c", "cp /secret/config.json /docker-config/config.json"],
-               "volumeMounts": [
-                 {"name": "docker-config-secret", "mountPath": "/secret", "readOnly": true},
-                 {"name": "docker-config", "mountPath": "/docker-config"}
-               ]
-             }}
-          ]'
-          kubectl rollout status deployment/dynamic-rp -n radius-system --timeout=120s
-          sleep 10
-          kubectl wait --for=condition=Ready pod -n radius-system -l app.kubernetes.io/name=dynamic-rp --timeout=120s
-
-          # Verify docker auth is available
-          POD=$(kubectl get pods -n radius-system -l app.kubernetes.io/name=dynamic-rp --field-selector=status.phase=Running -o jsonpath='{.items[0].metadata.name}')
-          kubectl exec -n radius-system "$POD" -c dynamic-rp -- cat /root/.docker/config.json
 
       - name: Configure external deployment target
         run: |
-          TARGET_KUBECONFIG="$HOME/.kube/target-cluster"
+          TARGET_KUBECONFIG="$RADIUS_TARGET_KUBECONFIG"
 
           if [ ! -f "$TARGET_KUBECONFIG" ]; then
             echo "No target kubeconfig found, resources will deploy to k3d cluster"
@@ -323,29 +252,38 @@ jobs:
           NAMESPACE="${{ vars.RADIUS_K8S_NAMESPACE || 'default' }}"
 
           # Ensure namespace exists on target cluster before Radius deploys into it.
-          TARGET_KUBECONFIG="$HOME/.kube/target-cluster"
+          TARGET_KUBECONFIG="$RADIUS_TARGET_KUBECONFIG"
           if [ -f "$TARGET_KUBECONFIG" ]; then
             echo "Ensuring namespace $NAMESPACE exists on target cluster..."
             kubectl --kubeconfig "$TARGET_KUBECONFIG" get namespace "$NAMESPACE" 2>/dev/null ||               kubectl --kubeconfig "$TARGET_KUBECONFIG" create namespace "$NAMESPACE"
           fi
 
+          # The Radius.Core/environments resource (with its recipe pack and
+          # cloud providers) is created later via Bicep, so we only set up the
+          # workspace and resource group here.
           rad workspace create kubernetes default
           rad group create default
           rad group switch default
-          rad env create "$ENVIRONMENT" --namespace "$NAMESPACE"
-          rad env switch "$ENVIRONMENT"
 
-      - name: Register Azure credentials with Radius
-        if: ${{ vars.AZURE_CLIENT_ID != '' }}
+      - name: Register cloud credentials with Radius
         run: |
-          rad env update "$ENVIRONMENT" \
-            --azure-subscription-id "${{ vars.AZURE_SUBSCRIPTION_ID }}" \
-            --azure-resource-group "${{ vars.AZURE_RESOURCE_GROUP }}"
-
-      - name: Register AWS credentials with Radius
-        if: ${{ vars.AWS_IAM_ROLE_ARN != '' }}
-        run: |
-          rad env update "$ENVIRONMENT"             --aws-region "${{ vars.AWS_REGION }}"             --aws-account-id "${{ vars.AWS_ACCOUNT_ID }}"
+          # Register the cloud identity with Radius using its UCP credential model.
+          # Radius stores only the identity selector (AWS role ARN / Azure client +
+          # tenant id); the short-lived token is read at runtime from the GitHub
+          # OIDC token file projected into the pods in the earlier step. This keeps
+          # the credential visible to `rad credential show`, rotatable, and usable
+          # by both the Bicep and Terraform code paths.
+          if [ -n "${{ vars.AWS_IAM_ROLE_ARN }}" ]; then
+            echo "Registering AWS IRSA credential..."
+            rad credential register aws irsa --iam-role "${{ vars.AWS_IAM_ROLE_ARN }}"
+          fi
+          if [ -n "${{ vars.AZURE_CLIENT_ID }}" ]; then
+            echo "Registering Azure workload identity credential..."
+            rad credential register azure wi \
+              --client-id "${{ vars.AZURE_CLIENT_ID }}" \
+              --tenant-id "${{ vars.AZURE_TENANT_ID }}"
+          fi
+          echo "✅ Cloud credentials registered with Radius."
 
       - name: Clone resource-types-contrib and register resource types
         run: |
@@ -365,56 +303,11 @@ jobs:
           echo "✅ Resource types registered"
 
           # Build a local Bicep extension from the containerImages type definition.
-          # The published radiusCompute extension does not include containerImages yet.
           CONTAINER_IMAGES_YAML="/tmp/resource-types-contrib/Compute/containerImages/containerImages.yaml"
           if [ -f "$CONTAINER_IMAGES_YAML" ]; then
             echo "Building local Bicep extension for containerImages..."
             rad bicep publish-extension -f "$CONTAINER_IMAGES_YAML" --target ./radiuscompute.tgz --force
             echo "✅ radiuscompute.tgz built"
-          fi
-
-      - name: Register terraform recipes from resource-types-contrib
-        run: |
-          REPO="${{ env.RESOURCE_TYPES_CONTRIB_REPO }}"
-          REF="${{ env.RESOURCE_TYPES_CONTRIB_REF }}"
-
-          rad recipe register default             --environment "$ENVIRONMENT"             --resource-type Radius.Compute/containerImages             --template-kind terraform             --template-path "git::$REPO//Compute/containerImages/recipes/kubernetes/terraform?ref=$REF"
-
-          rad recipe register default             --environment "$ENVIRONMENT"             --resource-type Radius.Compute/containers             --template-kind terraform             --template-path "git::$REPO//Compute/containers/recipes/kubernetes/terraform?ref=$REF"
-
-          rad recipe register default             --environment "$ENVIRONMENT"             --resource-type Radius.Compute/persistentVolumes             --template-kind terraform             --template-path "git::$REPO//Compute/persistentVolumes/recipes/kubernetes/terraform?ref=$REF"
-
-          rad recipe register default             --environment "$ENVIRONMENT"             --resource-type Radius.Compute/routes             --template-kind terraform             --template-path "git::$REPO//Compute/routes/recipes/kubernetes/terraform?ref=$REF"
-
-          rad recipe register default             --environment "$ENVIRONMENT"             --resource-type Radius.Data/postgreSqlDatabases             --template-kind terraform             --template-path "git::$REPO//Data/postgreSqlDatabases/recipes/kubernetes/terraform?ref=$REF"
-
-          rad recipe register default             --environment "$ENVIRONMENT"             --resource-type Radius.Security/secrets             --template-kind terraform             --template-path "git::$REPO//Security/secrets/recipes/kubernetes/terraform?ref=$REF"
-
-      - name: Register MySQL recipe (AWS)
-        if: ${{ vars.AWS_IAM_ROLE_ARN != '' }}
-        run: |
-          REPO="${{ env.RESOURCE_TYPES_CONTRIB_REPO }}"
-          REF="${{ env.RESOURCE_TYPES_CONTRIB_REF }}"
-          rad recipe register default             --environment "$ENVIRONMENT"             --resource-type Radius.Data/mySqlDatabases             --template-kind terraform             --template-path "git::$REPO//Data/mySqlDatabases/recipes/aws/terraform?ref=$REF"             --parameters vpcId="${{ vars.RADIUS_VPC_ID }}"             --parameters 'subnetIds=${{ vars.RADIUS_SUBNET_IDS }}'
-
-      - name: Register MySQL recipe (Azure)
-        if: ${{ vars.AZURE_CLIENT_ID != '' }}
-        run: |
-          REPO="${{ env.RESOURCE_TYPES_CONTRIB_REPO }}"
-          REF="${{ env.RESOURCE_TYPES_CONTRIB_REF }}"
-          rad recipe register default             --environment "$ENVIRONMENT"             --resource-type Radius.Data/mySqlDatabases             --template-kind terraform             --template-path "git::$REPO//Data/mySqlDatabases/recipes/azure/terraform?ref=$REF"             --parameters azure_subscription_id="${{ vars.AZURE_SUBSCRIPTION_ID }}"             --parameters resourceGroupName="${{ vars.AZURE_RESOURCE_GROUP }}"             --parameters location="${{ vars.AZURE_LOCATION || 'eastus' }}"
-
-      - name: Verify app namespace on target cluster
-        run: |
-          TARGET_KUBECONFIG="$HOME/.kube/target-cluster"
-          if [ -f "$TARGET_KUBECONFIG" ]; then
-            BICEP_APP_NAME=$(grep -oP "name:\s*'\K[^']+" ".radius/app.bicep" 2>/dev/null | head -1)
-            if [ -z "$BICEP_APP_NAME" ]; then
-              BICEP_APP_NAME="app"
-            fi
-            APP_NS="default-$BICEP_APP_NAME"
-            echo "Ensuring namespace $APP_NS exists on target cluster..."
-            kubectl --kubeconfig "$TARGET_KUBECONFIG" get namespace "$APP_NS" 2>/dev/null ||               kubectl --kubeconfig "$TARGET_KUBECONFIG" create namespace "$APP_NS"
           fi
 
       - name: Create bicepconfig for deployment
@@ -435,6 +328,173 @@ jobs:
           EOF
           echo "bicepconfig.json created"
           cat bicepconfig.json
+
+      - name: Create Radius environment and recipe pack
+        run: |
+          REPO="${{ env.RESOURCE_TYPES_CONTRIB_REPO }}"
+          REF="${{ env.RESOURCE_TYPES_CONTRIB_REF }}"
+          NAMESPACE="${{ vars.RADIUS_K8S_NAMESPACE || 'default' }}"
+
+          # Registry and credentials for the Radius.Compute/containerImages recipe.
+          # The recipe builds images with the in-pod BuildKit and pushes them to
+          # $BUILD_REGISTRY, authenticating with the Kubernetes Secret named
+          # $REGISTRY_SECRET_NAME (created in the app's runtime namespace below).
+          # The registry path must be lowercase.
+          BUILD_REGISTRY=$(echo "${{ vars.RADIUS_BUILD_REGISTRY || format('ghcr.io/{0}', github.repository_owner) }}" | tr '[:upper:]' '[:lower:]')
+          REGISTRY_SECRET_NAME="ghcr-registry-creds"
+
+          # Select the provider-specific Terraform recipe pack. An AWS environment
+          # registers the AWS recipe pack; an Azure environment registers the Azure
+          # recipe pack. Both bundle the shared Kubernetes compute/data recipes and
+          # differ only in the mySQL database recipe and cloud provider config.
+          MYSQL_RECIPE=""
+          CLOUD_PROVIDER=""
+          if [ -n "${{ vars.AWS_IAM_ROLE_ARN }}" ]; then
+            PACK_NAME="aws-terraform"
+            MYSQL_RECIPE=$(cat <<EOF
+          'Radius.Data/mySqlDatabases': {
+            recipeKind: 'terraform'
+            recipeLocation: 'git::$REPO//Data/mySqlDatabases/recipes/aws/terraform?ref=$REF'
+            parameters: {
+              vpcId: '${{ vars.RADIUS_VPC_ID }}'
+              subnetIds: '${{ vars.RADIUS_SUBNET_IDS }}'
+            }
+          }
+          EOF
+          )
+            CLOUD_PROVIDER=$(cat <<EOF
+          aws: {
+            accountId: '${{ vars.AWS_ACCOUNT_ID }}'
+            region: '${{ vars.AWS_REGION }}'
+          }
+          EOF
+          )
+          elif [ -n "${{ vars.AZURE_CLIENT_ID }}" ]; then
+            PACK_NAME="azure-terraform"
+            MYSQL_RECIPE=$(cat <<EOF
+          'Radius.Data/mySqlDatabases': {
+            recipeKind: 'terraform'
+            recipeLocation: 'git::$REPO//Data/mySqlDatabases/recipes/azure/terraform?ref=$REF'
+            parameters: {
+              azure_subscription_id: '${{ vars.AZURE_SUBSCRIPTION_ID }}'
+              resourceGroupName: '${{ vars.AZURE_RESOURCE_GROUP }}'
+              location: '${{ vars.AZURE_LOCATION || 'eastus' }}'
+            }
+          }
+          EOF
+          )
+            CLOUD_PROVIDER=$(cat <<EOF
+          azure: {
+            subscriptionId: '${{ vars.AZURE_SUBSCRIPTION_ID }}'
+            resourceGroupName: '${{ vars.AZURE_RESOURCE_GROUP }}'
+          }
+          EOF
+          )
+          else
+            PACK_NAME="kubernetes-terraform"
+          fi
+          echo "Selected recipe pack: $PACK_NAME"
+
+          # Generate a Bicep file that defines a recipe pack bundling every
+          # recipe and a Radius.Core/environments resource that references it.
+          cat > radius-env.bicep <<EOF
+          extension radius
+
+          resource recipePack 'Radius.Core/recipePacks@2025-08-01-preview' = {
+            name: '$PACK_NAME'
+            properties: {
+              recipes: {
+                'Radius.Compute/containerImages': {
+                  recipeKind: 'terraform'
+                  recipeLocation: 'git::$REPO//Compute/containerImages/recipes/kubernetes/terraform?ref=$REF'
+                  parameters: {
+                    registry: '$BUILD_REGISTRY'
+                    registrySecretName: '$REGISTRY_SECRET_NAME'
+                  }
+                }
+                'Radius.Compute/containers': {
+                  recipeKind: 'terraform'
+                  recipeLocation: 'git::$REPO//Compute/containers/recipes/kubernetes/terraform?ref=$REF'
+                }
+                'Radius.Compute/persistentVolumes': {
+                  recipeKind: 'terraform'
+                  recipeLocation: 'git::$REPO//Compute/persistentVolumes/recipes/kubernetes/terraform?ref=$REF'
+                }
+                'Radius.Compute/routes': {
+                  recipeKind: 'terraform'
+                  recipeLocation: 'git::$REPO//Compute/routes/recipes/kubernetes/terraform?ref=$REF'
+                }
+                'Radius.Data/postgreSqlDatabases': {
+                  recipeKind: 'terraform'
+                  recipeLocation: 'git::$REPO//Data/postgreSqlDatabases/recipes/kubernetes/terraform?ref=$REF'
+                }
+                'Radius.Security/secrets': {
+                  recipeKind: 'terraform'
+                  recipeLocation: 'git::$REPO//Security/secrets/recipes/kubernetes/terraform?ref=$REF'
+                }
+          $MYSQL_RECIPE
+              }
+            }
+          }
+
+          resource env 'Radius.Core/environments@2025-08-01-preview' = {
+            name: '$ENVIRONMENT'
+            properties: {
+              recipePacks: [
+                recipePack.id
+              ]
+              providers: {
+                kubernetes: {
+                  namespace: '$NAMESPACE'
+                }
+          $CLOUD_PROVIDER
+              }
+            }
+          }
+          EOF
+
+          echo "Generated radius-env.bicep:"
+          cat radius-env.bicep
+          echo ""
+          echo "Deploying Radius.Core/environments and recipe pack..."
+          rad deploy radius-env.bicep
+          echo "✅ Environment '$ENVIRONMENT' created with recipe pack."
+
+      - name: Verify app namespace on target cluster
+        run: |
+          TARGET_KUBECONFIG="$RADIUS_TARGET_KUBECONFIG"
+          if [ -f "$TARGET_KUBECONFIG" ]; then
+            BICEP_APP_NAME=$(grep -oP "name:\s*'\K[^']+" ".radius/app.bicep" 2>/dev/null | head -1)
+            if [ -z "$BICEP_APP_NAME" ]; then
+              BICEP_APP_NAME="app"
+            fi
+            APP_NS="default-$BICEP_APP_NAME"
+            echo "Ensuring namespace $APP_NS exists on target cluster..."
+            kubectl --kubeconfig "$TARGET_KUBECONFIG" get namespace "$APP_NS" 2>/dev/null ||               kubectl --kubeconfig "$TARGET_KUBECONFIG" create namespace "$APP_NS"
+          fi
+
+      - name: Create registry credentials for image builds
+        run: |
+          # The Radius.Compute/containerImages recipe builds images with the in-pod
+          # BuildKit and pushes them using a Kubernetes Secret (string keys
+          # `username`/`password`) named by the recipe pack's registrySecretName.
+          # The recipe runs inside the dynamic-rp Pod and reads this Secret from the
+          # app's runtime namespace on the control-plane cluster using in-cluster
+          # credentials, so create it there (plain kubectl == control-plane cluster).
+          NAMESPACE="${{ vars.RADIUS_K8S_NAMESPACE || 'default' }}"
+          BICEP_APP_NAME=$(grep -oP "name:\s*'\K[^']+" "$APP_FILE" 2>/dev/null | head -1)
+          if [ -z "$BICEP_APP_NAME" ]; then
+            BICEP_APP_NAME="app"
+          fi
+          APP_NS="${NAMESPACE}-${BICEP_APP_NAME}"
+
+          kubectl create namespace "$APP_NS" --dry-run=client -o yaml | kubectl apply -f -
+          kubectl create secret generic ghcr-registry-creds \
+            -n "$APP_NS" \
+            --from-literal=username="${{ github.actor }}" \
+            --from-literal=password="${{ secrets.GHCR_PAT || secrets.GITHUB_TOKEN }}" \
+            --dry-run=client -o yaml | kubectl apply -f -
+          echo "✅ Registry credentials secret 'ghcr-registry-creds' created in namespace '$APP_NS'."
 
       - name: Deploy application
         run: |
@@ -480,7 +540,7 @@ jobs:
 
           # Collect app pod logs and events from target cluster
           APP_NS="default-todo-list-app"
-          TKC="$HOME/.kube/target-cluster"
+          TKC="$RADIUS_TARGET_KUBECONFIG"
           KC=""; [ -f "$TKC" ] && KC="--kubeconfig $TKC"
           if kubectl $KC get ns "$APP_NS" &>/dev/null; then
             kubectl $KC get pods -n "$APP_NS" -o wide >> /tmp/radius-logs/app-pods.txt 2>&1 || true
