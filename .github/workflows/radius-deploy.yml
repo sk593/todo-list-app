@@ -351,8 +351,8 @@ jobs:
             PACK_NAME="aws-terraform"
             MYSQL_RECIPE=$(cat <<EOF
           'Radius.Data/mySqlDatabases': {
-            recipeKind: 'terraform'
-            recipeLocation: 'git::$REPO//Data/mySqlDatabases/recipes/aws/terraform?ref=$REF'
+            kind: 'terraform'
+            source: 'git::$REPO//Data/mySqlDatabases/recipes/aws/terraform?ref=$REF'
             parameters: {
               vpcId: '${{ vars.RADIUS_VPC_ID }}'
               subnetIds: '${{ vars.RADIUS_SUBNET_IDS }}'
@@ -371,8 +371,8 @@ jobs:
             PACK_NAME="azure-terraform"
             MYSQL_RECIPE=$(cat <<EOF
           'Radius.Data/mySqlDatabases': {
-            recipeKind: 'terraform'
-            recipeLocation: 'git::$REPO//Data/mySqlDatabases/recipes/azure/terraform?ref=$REF'
+            kind: 'terraform'
+            source: 'git::$REPO//Data/mySqlDatabases/recipes/azure/terraform?ref=$REF'
             parameters: {
               azure_subscription_id: '${{ vars.AZURE_SUBSCRIPTION_ID }}'
               resourceGroupName: '${{ vars.AZURE_RESOURCE_GROUP }}'
@@ -403,32 +403,32 @@ jobs:
             properties: {
               recipes: {
                 'Radius.Compute/containerImages': {
-                  recipeKind: 'terraform'
-                  recipeLocation: 'git::$REPO//Compute/containerImages/recipes/kubernetes/terraform?ref=$REF'
+                  kind: 'terraform'
+                  source: 'git::$REPO//Compute/containerImages/recipes/kubernetes/terraform?ref=$REF'
                   parameters: {
                     registry: '$BUILD_REGISTRY'
                     registrySecretName: '$REGISTRY_SECRET_NAME'
                   }
                 }
                 'Radius.Compute/containers': {
-                  recipeKind: 'terraform'
-                  recipeLocation: 'git::$REPO//Compute/containers/recipes/kubernetes/terraform?ref=$REF'
+                  kind: 'terraform'
+                  source: 'git::$REPO//Compute/containers/recipes/kubernetes/terraform?ref=$REF'
                 }
                 'Radius.Compute/persistentVolumes': {
-                  recipeKind: 'terraform'
-                  recipeLocation: 'git::$REPO//Compute/persistentVolumes/recipes/kubernetes/terraform?ref=$REF'
+                  kind: 'terraform'
+                  source: 'git::$REPO//Compute/persistentVolumes/recipes/kubernetes/terraform?ref=$REF'
                 }
                 'Radius.Compute/routes': {
-                  recipeKind: 'terraform'
-                  recipeLocation: 'git::$REPO//Compute/routes/recipes/kubernetes/terraform?ref=$REF'
+                  kind: 'terraform'
+                  source: 'git::$REPO//Compute/routes/recipes/kubernetes/terraform?ref=$REF'
                 }
                 'Radius.Data/postgreSqlDatabases': {
-                  recipeKind: 'terraform'
-                  recipeLocation: 'git::$REPO//Data/postgreSqlDatabases/recipes/kubernetes/terraform?ref=$REF'
+                  kind: 'terraform'
+                  source: 'git::$REPO//Data/postgreSqlDatabases/recipes/kubernetes/terraform?ref=$REF'
                 }
                 'Radius.Security/secrets': {
-                  recipeKind: 'terraform'
-                  recipeLocation: 'git::$REPO//Security/secrets/recipes/kubernetes/terraform?ref=$REF'
+                  kind: 'terraform'
+                  source: 'git::$REPO//Security/secrets/recipes/kubernetes/terraform?ref=$REF'
                 }
           $MYSQL_RECIPE
               }
