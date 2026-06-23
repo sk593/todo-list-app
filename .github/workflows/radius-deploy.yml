@@ -22,7 +22,7 @@ permissions:
 env:
   ENVIRONMENT: ${{ inputs.environment }}
   APP_FILE: .radius/app.bicep
-  APP_IMAGE: ${{ inputs.image || vars.RADIUS_OCI_REGISTRY || '' }}
+  APP_IMAGE: ${{ inputs.image || github.sha || 'latest' }}
   RESOURCE_TYPES_CONTRIB_REPO: https://github.com/radius-project/resource-types-contrib.git
   RESOURCE_TYPES_CONTRIB_REF: main
 
