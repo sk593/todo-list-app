@@ -5,8 +5,8 @@ param environment string
 @secure()
 param password string
 
-@description('The full container image reference to build and push. Must be lowercase.')
-param image string
+@description('The container image tag to build and push (e.g. a commit SHA). Registry and image name come from the recipe pack and resource name.')
+param image string = 'latest'
 
 resource todoApp 'Applications.Core/applications@2023-10-01-preview' = {
   name: 'todo-list-app'
