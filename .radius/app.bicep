@@ -16,7 +16,7 @@ resource todoApp 'Applications.Core/applications@2023-10-01-preview' = {
 }
 
 resource database 'Radius.Data/mySqlDatabases@2025-08-01-preview' = {
-  name: 'sqldb'
+  name: 'mysqldb'
   properties: {
     environment: environment
     application: todoApp.id
@@ -47,9 +47,9 @@ resource demoImage 'Radius.Compute/containerImages@2025-08-01-preview' = {
   properties: {
     environment: environment
     application: todoApp.id
-    image: image
+    tag: image
     build: {
-      context: '/app/demo'
+      source: '/app/demo'
     }
   }
 }
@@ -61,7 +61,7 @@ resource todoContainer 'Radius.Compute/containers@2025-08-01-preview' = {
     application: todoApp.id
     containers: {
       todo: {
-        image: demoImage.properties.image
+        image: demoImage.properties.imageReference
         ports: {
           web: {
             containerPort: 3000
