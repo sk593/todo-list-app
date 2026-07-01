@@ -1,0 +1,19 @@
+{
+  "metadata": {
+    "name": "tfstate-default-724330b52e5e329542881b0c3e5df2e706d03160",
+    "namespace": "radius-system",
+    "labels": {
+      "app.kubernetes.io/managed-by": "terraform",
+      "tfstate": "true",
+      "tfstateSecretSuffix": "724330b52e5e329542881b0c3e5df2e706d03160",
+      "tfstateWorkspace": "default"
+    },
+    "annotations": {
+      "encoding": "gzip"
+    }
+  },
+  "data": {
+    "tfstate": "H4sIAAAAAAAA/0SMTa7CIBhF510F+caPpjxr/7ZiTIN40UYs5gOcNN27AQcOz7knd6uEoDc4LH6lSbR/mSOYtfX8nH8LqVq19UglCOBFO5qEKuiWFfqGXA3DiF71R9k1DeQ/lJG2PYxSGztoe7XdpWu+Hz7FV4qBJrHtRTCCT2yQ1elclLnDPGZGSK6Ua3Ku2qtPAAAA//+q3EhStQAAAA=="
+  },
+  "type": "Opaque"
+}
