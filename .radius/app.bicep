@@ -49,7 +49,7 @@ resource demoImage 'Radius.Compute/containerImages@2025-08-01-preview' = {
     application: todoApp.id
     tag: image
     build: {
-      source: '/app/demo'
+      source: 'git::https://github.com/sk593/todo-list-app.git'
     }
   }
 }
