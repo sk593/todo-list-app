@@ -31,6 +31,12 @@ on:
         description: 'rad CLI command string, or JSON array of command strings (rad prefix omitted, run verbatim). Overrides the default deploy.'
         required: false
         default: ''
+  # Auto-trigger after the Verify Credentials workflow completes. The extension's
+  # environment-setup flow dispatches only the verify workflow; this chain starts
+  # the deploy once verify succeeds (the job-level `if` gates on the conclusion).
+  workflow_run:
+    workflows: ["Radius - Verify Credentials"]
+    types: [completed]
 
 permissions:
   id-token: write
@@ -38,7 +44,7 @@ permissions:
   packages: write
 
 env:
-  ENVIRONMENT: ${{ inputs.environment }}
+  ENVIRONMENT: ${{ inputs.environment || 'dev' }}
   APP_FILE: '.radius/app.bicep'
   APP_IMAGE: ${{ inputs.image || github.sha || 'latest' }}
   RESOURCE_TYPES_CONTRIB_REPO: https://github.com/radius-project/resource-types-contrib.git
@@ -48,7 +54,10 @@ jobs:
   deploy:
     name: Deploy with Radius
     runs-on: ubuntu-latest
-    environment: ${{ inputs.environment }}
+    environment: ${{ inputs.environment || 'dev' }}
+    # On a workflow_dispatch run unconditionally; on a workflow_run event only
+    # proceed when the upstream Verify Credentials run succeeded.
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
