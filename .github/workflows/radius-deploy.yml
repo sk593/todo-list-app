@@ -323,7 +323,12 @@ jobs:
           # Registry and credentials for the Radius.Compute/containerImages recipe.
           # The recipe builds images with the in-pod BuildKit and pushes them to
           # $BUILD_REGISTRY, authenticating with the Kubernetes Secret named
-          # $REGISTRY_SECRET_NAME (created in the app's runtime namespace below).
+          # $REGISTRY_SECRET_NAME. That secret is provisioned the Radius-native way
+          # by an application-scoped Radius.Security/secrets resource declared in the
+          # app's own bicep, so it materializes into the application namespace where
+          # the recipe reads it (context.runtime.kubernetes.namespace). Only the
+          # secret NAME is wired here via the recipe pack's registrySecretName; the
+          # credentials themselves are supplied to the app deploy step further below.
           # The registry path must be lowercase.
           BUILD_REGISTRY=$(echo "${{ vars.RADIUS_BUILD_REGISTRY || format('ghcr.io/{0}', github.repository_owner) }}" | tr '[:upper:]' '[:lower:]')
           REGISTRY_SECRET_NAME="ghcr-registry-creds"
@@ -432,35 +437,6 @@ jobs:
             kubectl --kubeconfig "$TARGET_KUBECONFIG" get namespace "$APP_NS" 2>/dev/null ||               kubectl --kubeconfig "$TARGET_KUBECONFIG" create namespace "$APP_NS"
           fi
 
-      - name: Create registry credentials for image builds
-        run: |
-          # The Radius.Compute/containerImages recipe builds images with the in-pod
-          # BuildKit and pushes them using a Kubernetes Secret (string keys
-          # `username`/`password`) named by the recipe pack's registrySecretName.
-          # The recipe runs inside the dynamic-rp Pod and reads this Secret from the
-          # app's runtime namespace on the control-plane cluster using in-cluster
-          # credentials, so create it there (plain kubectl == control-plane cluster).
-          NAMESPACE="${{ vars.KUBERNETES_NAMESPACE || 'default' }}"
-          BICEP_APP_NAME=$(grep -oP "name:\s*'\K[^']+" "$APP_FILE" 2>/dev/null | head -1)
-          if [ -z "$BICEP_APP_NAME" ]; then
-            BICEP_APP_NAME="app"
-          fi
-          APP_NS="${NAMESPACE}-${BICEP_APP_NAME}"
-
-          # The recipe loads the registry secret from context.runtime.kubernetes.namespace.
-          # Per the containerImages README that is the environment namespace, but depending
-          # on the Radius version it can resolve to the per-app namespace, so create the
-          # secret in both to be safe.
-          for NS in "$NAMESPACE" "$APP_NS"; do
-            kubectl create namespace "$NS" --dry-run=client -o yaml | kubectl apply -f -
-            kubectl create secret generic ghcr-registry-creds \
-              -n "$NS" \
-              --from-literal=username="${{ github.actor }}" \
-              --from-literal=password="${{ secrets.GHCR_PAT || secrets.GITHUB_TOKEN }}" \
-              --dry-run=client -o yaml | kubectl apply -f -
-            echo "✅ Registry credentials secret 'ghcr-registry-creds' created in namespace '$NS'."
-          done
-
       - name: Run rad commands
         env:
           # Pass caller input through the environment to avoid command injection.
@@ -475,6 +451,12 @@ jobs:
           # by the default deploy below. Read via the environment (not inlined into
           # the script) so values with quotes/newlines can't break the shell.
           RADIUS_DEPLOY_PARAMS: ${{ secrets.RADIUS_DEPLOY_PARAMS }}
+          # Registry credentials for the Radius.Compute/containerImages image push.
+          # The app's application-scoped Radius.Security/secrets resource materializes
+          # these into the app namespace where the recipe reads them, so they are passed
+          # as secure bicep parameters to `rad deploy $APP_FILE` (never inlined/recorded).
+          REGISTRY_USERNAME: ${{ github.actor }}
+          REGISTRY_PASSWORD: ${{ secrets.GHCR_PAT || secrets.GITHUB_TOKEN }}
         run: |
           # pipefail so a failed `rad` whose output is piped through `tee` is detected
           # via PIPESTATUS rather than masked by tee's exit code.
@@ -487,6 +469,15 @@ jobs:
           if ! grep -q 'extension radiusCompute' "$APP_FILE" 2>/dev/null; then
             echo "Injecting 'extension radiusCompute' into $APP_FILE"
             sed -i '/^extension radius$/a extension radiusCompute' "$APP_FILE" 2>/dev/null || true
+          fi
+
+          # Only pass registry credentials when the app bicep actually declares the
+          # registryUsername/registryPassword params (i.e. it uses containerImages with
+          # an authenticated registry). Passing parameters the template doesn't declare
+          # would fail the deploy, so guard on their presence.
+          APP_WANTS_REGISTRY_CREDS=0
+          if grep -q 'param registryUsername' "$APP_FILE" 2>/dev/null; then
+            APP_WANTS_REGISTRY_CREDS=1
           fi
 
           # Aggregate result accumulators. The result is written by a trap on EXIT so
@@ -589,6 +580,10 @@ jobs:
                 if [ -n "$APP_IMAGE" ]; then
                   EXTRA_PARAMS+=(--parameters "image=$APP_IMAGE")
                 fi
+                if [ "$APP_WANTS_REGISTRY_CREDS" = "1" ]; then
+                  EXTRA_PARAMS+=(--parameters "registryUsername=$REGISTRY_USERNAME")
+                  EXTRA_PARAMS+=(--parameters "registryPassword=$REGISTRY_PASSWORD")
+                fi
                 if [ -n "${RADIUS_DEPLOY_PARAMS//[[:space:]]/}" ]; then
                   while IFS= read -r _pname; do
                     [ -z "$_pname" ] && continue
@@ -622,6 +617,10 @@ jobs:
             DEPLOY_PARAMS=()
             if [ -n "$APP_IMAGE" ]; then
               DEPLOY_PARAMS+=(--parameters "image=$APP_IMAGE")
+            fi
+            if [ "$APP_WANTS_REGISTRY_CREDS" = "1" ]; then
+              DEPLOY_PARAMS+=(--parameters "registryUsername=$REGISTRY_USERNAME")
+              DEPLOY_PARAMS+=(--parameters "registryPassword=$REGISTRY_PASSWORD")
             fi
             # Expand the application parameters JSON ({"name":"value", …}) into
             # --parameters name=value pairs. Each value is read back from the JSON
