@@ -1,6 +1,6 @@
 {
   "version": "1.0.0",
-  "generatedAt": "2026-07-01T23:45:14Z",
+  "generatedAt": "2026-07-02T16:16:04Z",
   "sourceFile": ".radius/app.bicep",
   "application": {
     "resources": [
@@ -36,7 +36,7 @@
         "type": "Applications.Core/applications"
       },
       {
-        "appDefinitionLine": 72,
+        "appDefinitionLine": 78,
         "connections": [
           {
             "direction": "Outbound",
@@ -59,7 +59,7 @@
         "type": "Radius.Compute/containerImages"
       },
       {
-        "appDefinitionLine": 87,
+        "appDefinitionLine": 93,
         "connections": [
           {
             "direction": "Outbound",
@@ -118,6 +118,10 @@
           {
             "direction": "Inbound",
             "id": "/planes/radius/local/resourcegroups/default/providers/Radius.Data/mySqlDatabases/mysqldb"
+          },
+          {
+            "direction": "Inbound",
+            "id": "/planes/radius/local/resourcegroups/default/providers/Radius.Security/secrets/ghcr-registry-creds"
           }
         ],
         "diffHash": "sha256:c6a392457da656bdb82f2a4d9876f03f27b174399154c26d630e5c665bc3cd11",
@@ -132,6 +136,10 @@
         "connections": [
           {
             "direction": "Outbound",
+            "id": "/planes/radius/local/resourcegroups/default/providers/Radius.Security/secrets/dbsecret"
+          },
+          {
+            "direction": "Outbound",
             "id": "/planes/radius/local/resourcegroups/default/providers/Applications.Core/applications/todo-list-app"
           },
           {
@@ -139,7 +147,7 @@
             "id": "/planes/radius/local/resourcegroups/default/providers/Radius.Compute/containerImages/containerImages"
           }
         ],
-        "diffHash": "sha256:c6a392457da656bdb82f2a4d9876f03f27b174399154c26d630e5c665bc3cd11",
+        "diffHash": "sha256:cbc403be5f07be5a995339d5910c4f0ea9b66142a00c63c43057cdc98b5a4aec",
         "id": "/planes/radius/local/resourcegroups/default/providers/Radius.Security/secrets/ghcr-registry-creds",
         "name": "ghcr-registry-creds",
         "outputResources": [],
