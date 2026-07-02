@@ -67,6 +67,12 @@ resource registryCreds 'Radius.Security/secrets@2025-08-01-preview' = {
       }
     }
   }
+  // Serialize secret provisioning: deploying multiple Radius.Security/secrets
+  // in parallel races on a shared backend and fails with a concurrency conflict,
+  // so order this secret after dbSecret to force sequential deployment.
+  dependsOn: [
+    dbSecret
+  ]
 }
 
 resource demoImage 'Radius.Compute/containerImages@2025-08-01-preview' = {
