@@ -14,7 +14,7 @@ param registryUsername string = ''
 @description('Registry password/token for the containerImages image push (supplied by the deploy workflow).')
 param registryPassword string = ''
 
-resource todoApp 'Applications.Core/applications@2023-10-01-preview' = {
+resource todoApp 'Radius.Core/applications@2025-08-01-preview' = {
   name: 'todo-list-app'
   properties: {
     environment: environment
