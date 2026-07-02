@@ -138,20 +138,10 @@ jobs:
           if [ -f "$RADIUS_TARGET_KUBECONFIG" ]; then
             TARGET_FLAGS+=(--set global.targetCluster.enabled=true)
           fi
-          # TEMPORARY (test): pin the Postgres etag-drift fix from
-          # radius-project/radius#12312. Only ucp/applications-rp/dynamic-rp carry
-          # the store fix; images are published at ghcr.io/sk593/dev/<c>:pr-12312.
-          # Remove this block once the fix ships in a released Radius version.
-          PR12312_FLAGS=(
-            --set ucp.image=ghcr.io/sk593/dev/ucpd --set ucp.tag=pr-12312
-            --set rp.image=ghcr.io/sk593/dev/applications-rp --set rp.tag=pr-12312
-            --set dynamicrp.image=ghcr.io/sk593/dev/dynamic-rp --set dynamicrp.tag=pr-12312
-          )
           rad install kubernetes \
             --set database.enabled=true \
             --set rp.publicEndpointOverride=localhost \
             --set dynamicrp.buildkit.enabled=true \
-            "${PR12312_FLAGS[@]}" \
             "${TARGET_FLAGS[@]}"
           kubectl wait --for=condition=Available deployment --all -n radius-system --timeout=300s
 
