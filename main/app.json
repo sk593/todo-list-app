@@ -1,16 +1,12 @@
 {
   "version": "1.0.0",
-  "generatedAt": "2026-07-02T20:36:29Z",
+  "generatedAt": "2026-07-02T22:04:30Z",
   "sourceFile": ".radius/app.bicep",
   "application": {
     "resources": [
       {
-        "appDefinitionLine": 72,
+        "appDefinitionLine": 51,
         "connections": [
-          {
-            "direction": "Outbound",
-            "id": "/planes/radius/local/resourcegroups/default/providers/Radius.Security/secrets/ghcr-registry-creds"
-          },
           {
             "direction": "Outbound",
             "id": "/planes/radius/local/resourcegroups/default/providers/Radius.Core/applications/todo-list-app"
@@ -20,7 +16,7 @@
             "id": "/planes/radius/local/resourcegroups/default/providers/Radius.Compute/containers/todo-list-frontend"
           }
         ],
-        "diffHash": "sha256:102fbf0b479929dcc00945c462dace88478e9516f299bc1b6258ad72501d9497",
+        "diffHash": "sha256:c6a392457da656bdb82f2a4d9876f03f27b174399154c26d630e5c665bc3cd11",
         "id": "/planes/radius/local/resourcegroups/default/providers/Radius.Compute/containerImages/containerImages",
         "name": "containerImages",
         "outputResources": [],
@@ -28,7 +24,7 @@
         "type": "Radius.Compute/containerImages"
       },
       {
-        "appDefinitionLine": 87,
+        "appDefinitionLine": 63,
         "connections": [
           {
             "direction": "Outbound",
@@ -55,7 +51,7 @@
         "type": "Radius.Compute/containers"
       },
       {
-        "appDefinitionLine": 17,
+        "appDefinitionLine": 11,
         "connections": [
           {
             "direction": "Inbound",
@@ -72,10 +68,6 @@
           {
             "direction": "Inbound",
             "id": "/planes/radius/local/resourcegroups/default/providers/Radius.Security/secrets/dbsecret"
-          },
-          {
-            "direction": "Inbound",
-            "id": "/planes/radius/local/resourcegroups/default/providers/Radius.Security/secrets/ghcr-registry-creds"
           }
         ],
         "diffHash": "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
@@ -86,7 +78,7 @@
         "type": "Radius.Core/applications"
       },
       {
-        "appDefinitionLine": 24,
+        "appDefinitionLine": 18,
         "connections": [
           {
             "direction": "Outbound",
@@ -109,7 +101,7 @@
         "type": "Radius.Data/mySqlDatabases"
       },
       {
-        "appDefinitionLine": 35,
+        "appDefinitionLine": 29,
         "connections": [
           {
             "direction": "Outbound",
@@ -123,25 +115,6 @@
         "diffHash": "sha256:c6a392457da656bdb82f2a4d9876f03f27b174399154c26d630e5c665bc3cd11",
         "id": "/planes/radius/local/resourcegroups/default/providers/Radius.Security/secrets/dbsecret",
         "name": "dbsecret",
-        "outputResources": [],
-        "provisioningState": "Succeeded",
-        "type": "Radius.Security/secrets"
-      },
-      {
-        "appDefinitionLine": 56,
-        "connections": [
-          {
-            "direction": "Outbound",
-            "id": "/planes/radius/local/resourcegroups/default/providers/Radius.Core/applications/todo-list-app"
-          },
-          {
-            "direction": "Inbound",
-            "id": "/planes/radius/local/resourcegroups/default/providers/Radius.Compute/containerImages/containerImages"
-          }
-        ],
-        "diffHash": "sha256:c6a392457da656bdb82f2a4d9876f03f27b174399154c26d630e5c665bc3cd11",
-        "id": "/planes/radius/local/resourcegroups/default/providers/Radius.Security/secrets/ghcr-registry-creds",
-        "name": "ghcr-registry-creds",
         "outputResources": [],
         "provisioningState": "Succeeded",
         "type": "Radius.Security/secrets"
