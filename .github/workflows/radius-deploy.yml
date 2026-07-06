@@ -338,15 +338,16 @@ jobs:
           # recipe pack. Both bundle the shared Kubernetes compute/data recipes and
           # differ only in the mySQL database recipe and cloud provider config.
           PACK_NAME="azure-terraform"
+          # The Azure mySQL recipe reads subscription, resource group, and
+          # location from the Radius recipe context (var.context.azure), which
+          # Radius populates from the environment's providers.azure block below.
+          # It declares no azure_subscription_id/resourceGroupName/location
+          # variables, so passing them as recipe parameters makes Terraform fail
+          # with "Extraneous JSON object property". Pass no parameters here.
           MYSQL_RECIPE=$(cat <<EOF
           'Radius.Data/mySqlDatabases': {
             kind: 'terraform'
             source: 'git::$REPO//Data/mySqlDatabases/recipes/azure/terraform?ref=sk593/add-azure-mysql-recipe'
-            parameters: {
-              azure_subscription_id: '${{ vars.AZURE_SUBSCRIPTION_ID }}'
-              resourceGroupName: '${{ vars.AZURE_RESOURCE_GROUP }}'
-              location: '${{ vars.AZURE_LOCATION || 'eastus' }}'
-            }
           }
           EOF
           )
