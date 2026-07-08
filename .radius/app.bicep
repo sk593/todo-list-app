@@ -22,23 +22,8 @@ resource database 'Radius.Data/mySqlDatabases@2025-08-01-preview' = {
     application: todoApp.id
     database: 'todos'
     version: '8.0'
-    secretName: dbSecret.name
-  }
-}
-
-resource dbSecret 'Radius.Security/secrets@2025-08-01-preview' = {
-  name: 'dbsecret'
-  properties: {
-    environment: environment
-    application: todoApp.id
-    data: {
-      USERNAME: {
-        value: 'todo_list_app_user'
-      }
-      PASSWORD: {
-        value: password
-      }
-    }
+    username: 'todo_list_app_user'
+    password: password
   }
 }
 
