@@ -6,9 +6,6 @@ on:
         description: 'Radius environment name'
         required: true
         default: 'dev'
-  workflow_run:
-    workflows: ["Radius - Verify Credentials"]
-    types: [completed]
 
 permissions:
   id-token: write
@@ -22,7 +19,6 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     environment: ${{ inputs.environment || 'dev' }}
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     steps:
       - uses: actions/checkout@v4
 
