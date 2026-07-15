@@ -75,14 +75,3 @@ jobs:
       image: ${{ inputs.image }}
       rad_commands: ${{ inputs.rad_commands }}
     secrets: inherit
-
-  aws:
-    name: AWS
-    needs: detect
-    if: ${{ needs.detect.outputs.provider == 'aws' }}
-    uses: ./.github/workflows/run-rad-commands-aws.yml
-    with:
-      environment: ${{ inputs.environment || 'dev' }}
-      image: ${{ inputs.image }}
-      rad_commands: ${{ inputs.rad_commands }}
-    secrets: inherit
