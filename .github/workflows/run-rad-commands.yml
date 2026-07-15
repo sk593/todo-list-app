@@ -31,12 +31,6 @@ on:
         description: 'rad CLI command string, or JSON array of command strings (rad prefix omitted; split on whitespace, so arguments with spaces are not supported). Overrides the default deploy.'
         required: false
         default: ''
-  # Auto-trigger after the Verify Credentials workflow completes. The extension's
-  # environment-setup flow dispatches only the verify workflow; this chain starts
-  # the deploy once verify succeeds (the job-level `if` gates on the conclusion).
-  workflow_run:
-    workflows: ["Radius - Verify Credentials"]
-    types: [completed]
 
 permissions:
   id-token: write
