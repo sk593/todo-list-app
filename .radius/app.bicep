@@ -23,7 +23,7 @@ resource todoApp 'Radius.Core/applications@2025-08-01-preview' = {
 }
 
 resource database 'Radius.Data/mySqlDatabases@2025-08-01-preview' = {
-  name: 'mysqldb-e8b3ed'
+  name: 'mysqldb-258eb0'
   properties: {
     environment: environment
     application: todoApp.id
