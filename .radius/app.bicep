@@ -44,7 +44,7 @@ resource database 'Radius.Data/mySqlDatabases@2025-08-01-preview' = {
 // build. The registry itself (where images are pushed) is an operator concern set
 // on the recipe pack's `registry` parameter and cannot be set on the resource.
 resource registryCreds 'Radius.Security/secrets@2025-08-01-preview' = {
-  name: 'ghcr-registry-creds'
+  name: 'radius-ghcr-registry-creds'
   properties: {
     environment: environment
     application: todoApp.id
