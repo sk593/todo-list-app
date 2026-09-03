@@ -28,6 +28,9 @@ async function init() {
         waitForDns: true,
     });
 
+    const sslEnabled =
+        process.env.MYSQL_SSL === 'true' || process.env.MYSQL_SSL === '1';
+
     pool = mysql.createPool({
         connectionLimit: 5,
         host,
@@ -35,6 +38,7 @@ async function init() {
         password,
         database,
         charset: 'utf8mb4',
+        ...(sslEnabled ? { ssl: { minVersion: 'TLSv1.2' } } : {}),
     });
 
     return new Promise((acc, rej) => {
