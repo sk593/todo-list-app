@@ -72,11 +72,11 @@ resource todoImage 'Radius.Compute/containerImages@2025-08-01-preview' = {
       platforms: [
         'linux/amd64'
       ]
-      source: 'git::https://github.com/sk593/todo-list-app.git?ref=5a6fbf5caf982f1d928fe6c1c32aa74f1e95e063'
+      source: 'git::https://github.com/sk593/todo-list-app.git?ref=072165f9bf10d42e8d860b5a3af618be3c234ce4'
     }
     codeReference: 'Dockerfile#L3'
     environment: environment
-    tag: '5a6fbf5caf982f1d928fe6c1c32aa74f1e95e063'
+    tag: '072165f9bf10d42e8d860b5a3af618be3c234ce4'
   }
   dependsOn: [
     registryCreds
@@ -104,6 +104,9 @@ resource todoContainer 'Radius.Compute/containers@2025-08-01-preview' = {
                 secretName: mysqlClientCredentials.name
               }
             }
+          }
+          MYSQL_SSL: {
+            value: 'true'
           }
           MYSQL_USER: {
             value: 'myadmin'
